@@ -2,7 +2,7 @@ import asyncio
 import calendar
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, urlunsplit
 
@@ -12,9 +12,7 @@ import httpx
 from schemas import Article, NewsResponse, Source, Warning
 
 FEEDS = (
-    (Source(id="techcrunch-ai", name="TechCrunch AI"), "https://techcrunch.com/category/artificial-intelligence/feed/"),
-    (Source(id="ars-technica", name="Ars Technica"), "https://feeds.arstechnica.com/arstechnica/index"),
-    (Source(id="mit-ai", name="MIT News · AI"), "https://news.mit.edu/rss/topic/artificial-intelligence2"),
+    (Source(id="google-news-ai", name="Google News · AI"), "https://news.google.com/rss/search?q=artificial+intelligence&hl=en-US&gl=US&ceid=US:en"),
 )
 
 
@@ -103,14 +101,22 @@ async def collect_news():
         results = await asyncio.gather(*(fetch(*feed) for feed in FEEDS))
     if not any(result[2] for result in results):
         raise AllFeedsFailed()
+    collected_at = datetime.now(timezone.utc)
+    cutoff = collected_at - timedelta(hours=24)
     unique = {}
     for articles, _, _ in results:
         for article in articles:
-            unique.setdefault(article.url, article)
+            if not article.published_at:
+                continue
+            published_at = datetime.fromisoformat(article.published_at.replace("Z", "+00:00"))
+            if cutoff <= published_at <= collected_at:
+                previous = unique.get(article.url)
+                if previous is None or article.published_at > previous.published_at:
+                    unique[article.url] = article
     articles = sorted(unique.values(), key=lambda a: (a.url, a.source_id))
     articles.sort(key=lambda a: a.published_at or "", reverse=True)
-    return NewsResponse(articles=articles[:100], sources=[source for source, _ in FEEDS],
-                        collected_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    return NewsResponse(articles=articles[:10], sources=[source for source, _ in FEEDS],
+                        collected_at=collected_at.isoformat().replace("+00:00", "Z"),
                         warnings=[warning for _, warning, _ in results if warning])
 
 

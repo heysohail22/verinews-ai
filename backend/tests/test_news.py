@@ -1,4 +1,6 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 
 import httpx
 import pytest
@@ -14,6 +16,15 @@ RSS = b'''<?xml version="1.0"?><rss version="2.0"><channel><title>Test</title>
 <item><title></title><link>https://example.com/empty</link></item>
 </channel></rss>'''
 EMPTY = b'<rss version="2.0"><channel><title>Empty</title></channel></rss>'
+
+
+@pytest.fixture(autouse=True)
+def fixed_clock(monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 28, 12, tzinfo=timezone.utc).astimezone(tz)
+    monkeypatch.setattr(feeds, "datetime", FixedDatetime)
 
 
 def mock_client(monkeypatch, handler):
@@ -39,14 +50,17 @@ def test_unsafe_links(url):
 
 
 def test_collection_dedup_sort_partial_failure(monkeypatch):
+    monkeypatch.setattr(feeds, "FEEDS", (
+        (feeds.Source(id="test", name="Test"), "https://example.com/feed"),
+        (feeds.Source(id="mit-ai", name="MIT AI"), "https://news.mit.edu/rss"),
+    ))
     def handler(request):
         return httpx.Response(503 if request.url.host == "news.mit.edu" else 200, content=RSS)
     mock_client(monkeypatch, handler)
     result = asyncio.run(feeds.collect_news())
-    assert len(result.articles) == 2
+    assert len(result.articles) == 1
     assert result.articles[0].title == "New AI"
-    assert result.articles[1].published_at is None
-    assert len(result.sources) == 3
+    assert len(result.sources) == len(feeds.FEEDS)
     assert result.warnings[0].source_id == "mit-ai"
     assert result.collected_at.endswith("Z")
 
@@ -81,9 +95,42 @@ def test_unreadable_feed():
         feeds.parse_feed(b'<html>Not a feed</html>', feeds.FEEDS[0][0])
 
 
+def rss_items(entries):
+    items = "".join(
+        f"<item><title>{title}</title><link>{url}</link>"
+        + (f"<pubDate>{format_datetime(date)}</pubDate>" if date else "")
+        + "</item>" for title, url, date in entries
+    )
+    return f'<rss version="2.0"><channel><title>Test</title>{items}</channel></rss>'.encode()
+
+
 def test_limit(monkeypatch):
-    content = ('<rss version="2.0"><channel><title>Many</title>' + ''.join(f'<item><title>Story {i}</title><link>https://example.com/{i}</link></item>' for i in range(110)) + '</channel></rss>').encode()
+    now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
+    content = rss_items([(f"Story {i}", f"https://example.com/{i}", now - timedelta(minutes=i)) for i in reversed(range(15))])
     mock_client(monkeypatch, lambda request: httpx.Response(200, content=content))
     result = asyncio.run(feeds.collect_news())
-    assert len(result.articles) == 100
+    assert [a.title for a in result.articles] == [f"Story {i}" for i in range(10)]
     assert result.articles == asyncio.run(feeds.collect_news()).articles
+
+
+def test_freshness_boundaries_and_duplicates(monkeypatch):
+    now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
+    content = rss_items([
+        ("Unknown", "https://example.com/unknown", None),
+        ("Old", "https://example.com/old", now - timedelta(hours=24, seconds=1)),
+        ("Future", "https://example.com/future", now + timedelta(seconds=1)),
+        ("Boundary", "https://example.com/boundary", now - timedelta(hours=24)),
+        ("Earlier duplicate", "https://example.com/new#first", now - timedelta(hours=1)),
+        ("Newest duplicate", "https://example.com/new", now),
+    ])
+    mock_client(monkeypatch, lambda request: httpx.Response(200, content=content))
+    result = asyncio.run(feeds.collect_news())
+    assert [a.title for a in result.articles] == ["Newest duplicate", "Boundary"]
+
+
+def test_no_recent_articles_is_success(monkeypatch):
+    content = rss_items([("Old", "https://example.com/old", datetime(2020, 1, 1, tzinfo=timezone.utc))])
+    mock_client(monkeypatch, lambda request: httpx.Response(200, content=content))
+    result = asyncio.run(feeds.collect_news())
+    assert result.articles == []
+    assert result.warnings == []

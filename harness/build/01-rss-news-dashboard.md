@@ -203,3 +203,13 @@ Implementation includes all specified UI states, in-memory filtering, recollecti
 ## Later phases
 
 After this phase works, separately specify full article extraction using `trafilatura`, local LLM claim extraction, supporting-source retrieval and comparison, and social post drafting. These are future possibilities, not acceptance requirements for version 1.
+
+## Agreed scope update: recent ten stories
+
+The user requested a first filtering pass: collect feeds, keep entries published
+within the preceding 24 hours, deduplicate normalized URLs, and return the newest
+10. Unknown dates and future timestamps are excluded; fewer eligible entries
+produce fewer results. This supersedes the original 100-article limit and inclusion
+of undated articles. Google News AI is currently the active feed; the three direct
+publisher feeds were disabled by the user. No relevance/significance scoring or
+cross-publisher event clustering is included in this pass.
