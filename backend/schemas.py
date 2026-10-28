@@ -36,3 +36,15 @@ class NewsResponse(BaseModel):
     sources: list[Source]
     collected_at: str
     warnings: list[Warning]
+
+
+class PostRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=1000)
+    description: str = Field(default="", max_length=8000)
+    source: str = Field(min_length=1, max_length=256)
+    url: str = Field(min_length=1, max_length=8192)
+
+
+class PostResponse(BaseModel):
+    draft: str
+    model: str

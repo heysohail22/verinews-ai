@@ -66,3 +66,31 @@ limits, unsafe links, and failures. Live collection across all five feeds return
 10 story groups with no source warnings. Frontend lint passed.
 
 TypeScript checking and the production Next.js build also passed.
+
+## Local X post drafts
+
+Install Ollama and download the model once:
+
+```bash
+ollama pull qwen3:4b-instruct
+ollama serve  # only if the Ollama service is not already running
+```
+
+The backend defaults to `OLLAMA_BASE_URL=http://localhost:11434` and
+`OLLAMA_MODEL=qwen3:4b-instruct`. Change these with environment variables or copy
+`.env.example` to `.env` and start with `uv run uvicorn main:app --reload --env-file .env`.
+No Python Ollama SDK or API key is required; httpx calls the local `/api/chat` API.
+
+`POST /api/posts/x` accepts `title`, `description`, `source`, and an HTTP(S) `url`.
+It returns `{ "draft": "...", "model": "..." }`. The model receives bounded RSS
+text as untrusted reference data, with thinking disabled and JSON output. The
+backend appends attribution and the supplied source URL itself. Only one draft
+is generated per backend process at a time (429 if busy); the Ollama request has
+an explicit timeout. Missing model/server, timeouts, and unusable output return
+helpful errors. Generation does not fetch full articles or verify claims.
+
+The frontend uses `twitter-text` weighted counting and disables Copy for invalid
+or over-280-character drafts. A model may exceed the requested length; edit the
+result before copying. Model instructions reduce but cannot eliminate invented
+claims. Review the draft and source evidence before manually posting to X.
+Nothing is published automatically, and drafts are not stored persistently.

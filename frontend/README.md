@@ -20,10 +20,18 @@ ranked by distinct publisher count then freshness. Expand publisher coverage to
 read other reporting. Counts describe collected coverage, not verification or
 independent confirmation. Collection replaces the previous results; failed recollections retain
 previous stories and their original timestamp. Refreshing clears all articles.
-No API keys, persistence, generated summaries, or fact-checking are involved.
+No API keys or article persistence are required. News collection does not fact-check stories.
 
 ```bash
 pnpm lint
 pnpm build
 pnpm start
 ```
+
+Each story has **Generate X post**, powered by local Ollama through FastAPI.
+The default model is `qwen3:4b-instruct` (see backend setup). Generated drafts are
+editable, with X-compatible weighted character counts, regeneration, and Copy.
+Copy is disabled when text is empty, invalid, or above 280 characters. If clipboard
+access is unavailable, copy the text manually. Failed regeneration preserves the
+previous draft; successful news recollection resets drafts. Refreshing clears them.
+Review every draft: it is generated from RSS text and is not fact-checked.

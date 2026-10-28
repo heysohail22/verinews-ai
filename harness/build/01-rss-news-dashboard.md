@@ -246,3 +246,24 @@ ranking. Publisher counts remain unique across regions.
 At the user's request, removed the search field and publisher dropdown, along
 with local filter state and the no-match state. The story count now reflects all
 returned story groups. Backend collection and ranking are unchanged.
+
+## Agreed scope update: local X draft generation
+
+The user authorized a Generate X post action using installed local Ollama. Each
+story now offers generation, an editable draft, weighted X character counting
+(280 maximum), and Copy. A new `POST /api/posts/x` FastAPI endpoint calls local
+Ollama (`qwen3:4b-instruct` by default), with thinking disabled. The server appends
+publisher attribution and the original supplied URL. Errors preserve prior drafts;
+successful recollection resets them. This supersedes the original prohibition on
+LLM integration and post generation only for this requested draft feature. It adds
+no publishing, full article scraping, or fact-checking. Models may exceed length
+instructions; the UI requires editing invalid/overlong drafts before copying.
+
+X draft verification: all 34 backend tests pass, including mock generation,
+prompt/input bounds, malformed output, missing model/server, timeout, busy
+handling, POST endpoint and CORS. A real call to the user's local
+`qwen3:4b-instruct` generated a fictional sample draft with attribution and the
+supplied URL; twitter-text counted it as 171/280, valid. URL, emoji, CJK and
+280/281 boundary checks passed. Frontend lint, TypeScript and production build
+passed after correcting a CSS edit and the twitter-text ESM import. Browser
+interaction and clipboard checks remain unverified (no browser available).

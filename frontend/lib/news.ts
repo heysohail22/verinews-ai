@@ -47,3 +47,22 @@ export async function collectNews(): Promise<NewsResponse> {
   const data: Omit<NewsResponse, "articles"> & { articles: IncomingArticle[] } = await response.json();
   return { ...data, articles: data.articles.map(normalizeArticle) };
 }
+
+export async function generateXPost(article: Article): Promise<{ draft: string; model: string }> {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+  try {
+    const response = await fetch(`${base}/api/posts/x`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(190000),
+      body: JSON.stringify({ title: article.title, description: article.description, source: article.source, url: article.url }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : "Could not generate a draft. Please try again.");
+    if (typeof body?.draft !== "string" || !body.draft.trim()) throw new Error("The service returned an empty draft. Please try again.");
+    return body;
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") throw new Error("Draft generation timed out. Try again or use a smaller local model.");
+    if (err instanceof TypeError) throw new Error("Could not reach the backend. Check that FastAPI is running.");
+    throw err;
+  }
+}
