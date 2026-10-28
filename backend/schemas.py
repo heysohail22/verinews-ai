@@ -47,4 +47,26 @@ class PostRequest(BaseModel):
 
 class PostResponse(BaseModel):
     draft: str
+    body: str
+    source_url: str
     model: str
+
+
+class ArticleCandidate(BaseModel):
+    url: str = Field(min_length=1, max_length=8192)
+    source: str = Field(default="", max_length=256)
+
+
+class ArticleRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=8192)
+    expected_title: str = Field(default="", max_length=1000)
+    source: str = Field(default="", max_length=256)
+    alternatives: list[ArticleCandidate] = Field(default_factory=list, max_length=9)
+
+
+class ExtractedArticle(BaseModel):
+    source: str = ""
+    url: str
+    text: str
+    word_count: int
+    truncated: bool

@@ -267,3 +267,100 @@ supplied URL; twitter-text counted it as 171/280, valid. URL, emoji, CJK and
 280/281 boundary checks passed. Frontend lint, TypeScript and production build
 passed after correcting a CSS edit and the twitter-text ESM import. Browser
 interaction and clipboard checks remain unverified (no browser available).
+
+## Composer UI and LinkedIn update
+
+At the user's request, the composer offers X and LinkedIn with separate editable
+drafts, platform counts, optional source-link inclusion, regenerate and copy.
+LinkedIn requests 2–3 paragraphs and 80–140 words when supported by the RSS text.
+Trailing publisher suffixes (for example ` - Gulf Daily News (Bahrain)`) and the
+separate source-label line are omitted. Publisher coverage counts and expandable
+links were removed from cards; backend ranking remains unchanged.
+
+Verification: 36 backend tests passed. A live local LinkedIn generation produced
+a 66-word fictional sample draft without a publisher suffix or source-label line.
+Lint, TypeScript and production build passed.
+
+## shadcn/ui redesign
+
+The user requested a more polished interface using shadcn/ui. Official New York
+registry components were installed manually under `frontend/components/ui/`,
+with the upstream MIT license. `components.json` configures future component
+additions. The dashboard now uses a desktop workspace rail, responsive story
+cards, a region badge, collection statistics, empty/loading states, and a violet
+accent with shared Tailwind theme tokens. A Create post action opens a spacious
+Radix-backed Sheet with accessible platform Tabs, editor, source-link Switch,
+character counts, regenerate and copy actions. Drafts survive closing the panel;
+successful recollection still resets them. Removed search/publisher controls and
+publisher coverage details remain absent.
+
+Verification: frontend ESLint, TypeScript and production build passed. Backend
+behavior was unchanged by this visual redesign. The browser tool returned no
+available browsers, so desktop/mobile appearance, focus behavior and clipboard
+interactions remain unverified in a browser.
+
+## Full publisher article extraction
+
+The user installed Trafilatura and authorized full-article context before post
+generation. Create post now loads readable article text on demand, resolves Google
+News links, previews extracted text and enables generation only after success.
+Both post endpoints also require extraction server-side; RSS descriptions are not
+used as evidence. A bounded memory cache reuses article text across formats for
+10 minutes. This supersedes the original no-article-scraping non-goal for this
+explicitly requested feature, without adding persistent storage or fact-checking.
+
+Downloads, redirects, sizes and context lengths are bounded. Private-address and
+non-HTML URLs are rejected. Unavailable, blocked, recognized paywalled or too-short
+pages produce a useful error with no headline-only fallback. The model is told
+not to invent claims about verification or missing official confirmation.
+
+Verification: 52 fixture tests passed outside the sandbox (the sandboxed worker
+thread test stalled). Frontend lint, TypeScript and production build passed.
+Live Google resolution and publisher extraction yielded 333 words, while another
+story was unavailable and correctly rejected. Browser interactions unavailable.
+
+The live full-article-to-Ollama path completed. Its draft contained an altered
+numeric range, so a regression-tested guard now rejects output ranges absent
+from the source text. This is a narrow check, not comprehensive fact verification;
+model drafts still require review.
+
+## Short-article extraction fix
+
+The user supplied a GDN article that extracted to 97 words and was rejected by
+the old 100-word floor. Lowered the floor to 60 words while retaining HTML,
+paywall, blocked-page, size and address checks. Added clearer extraction errors
+and a direct publisher-link fallback. Headline/content word overlap now blocks
+obvious mismatches at both extraction and generation; the supplied Google link
+resolved to an unrelated story during diagnostics. Generation uses the loaded,
+validated publisher URL. This check is not semantic matching or verification.
+
+Verification: 54 tests passed; lint, TypeScript and production build passed. The
+supplied GDN URL extracted 97 words live and passed the headline check. Browser
+interaction checks remain unavailable.
+
+## Extraction retry clarity
+
+After another reported short-text failure, the supplied direct GDN URL was tested
+through the running backend and returned HTTP 200 with 97 words. Precision and
+default Trafilatura extraction both found the same text. The failing URL could
+not be established from the reported message. Made the publisher URL form always
+visible while context is unavailable and renamed the RSS retry action explicitly.
+Short-text failures now include the actual extracted word count and publisher
+domain, rather than a generic threshold message. The 60-word floor is unchanged.
+Extraction tests passed; frontend lint, TypeScript and production build passed.
+Browser interactions remain unverified.
+
+## Automatic source resolution and fallback
+
+The user requested automatic reading without pasting publisher URLs. The supplied
+Google RSS link resolved successfully to Newstimes, but the publisher returned a
+JavaScript Client Challenge instead of the article. Added explicit challenge
+classification, preserved US/India locale during Google decoding, and removed
+manual URL entry. The extraction API now tries up to four distinct collected
+coverage links within a 60-second budget, checking the headline match each time.
+Successful context is cached under the resolved URL and carries its publisher
+name into the studio and post generation. All unavailable sources means no draft.
+
+Verification: 58 backend tests passed; frontend lint, TypeScript and production
+build passed. Live attempts across four publishers for a current story remained
+unavailable and correctly blocked generation. Browser interactions unverified.

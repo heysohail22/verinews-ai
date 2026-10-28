@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from feeds import AllFeedsFailed, collect_news
 from schemas import NewsResponse, PostRequest, PostResponse
 from posts import generate_post
+from articles import extract_story
+from schemas import ArticleRequest, ExtractedArticle
 
 app = FastAPI(title="VeriNews")
 app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")], allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
@@ -35,3 +37,13 @@ async def news():
 @app.post("/api/posts/x", response_model=PostResponse)
 async def x_post(story: PostRequest):
     return await generate_post(story)
+
+
+@app.post("/api/posts/linkedin", response_model=PostResponse)
+async def linkedin_post(story: PostRequest):
+    return await generate_post(story, platform="linkedin")
+
+
+@app.post("/api/articles/extract", response_model=ExtractedArticle)
+async def article_text(request: ArticleRequest):
+    return await extract_story(request)

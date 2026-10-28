@@ -82,15 +82,104 @@ The backend defaults to `OLLAMA_BASE_URL=http://localhost:11434` and
 No Python Ollama SDK or API key is required; httpx calls the local `/api/chat` API.
 
 `POST /api/posts/x` accepts `title`, `description`, `source`, and an HTTP(S) `url`.
-It returns `{ "draft": "...", "model": "..." }`. The model receives bounded RSS
-text as untrusted reference data, with thinking disabled and JSON output. The
+It returns `draft`, the editable `body`, `source_url`, and `model`. The model receives bounded extracted publisher
+article text as untrusted reference data, with thinking disabled and JSON output. The
 backend appends attribution and the supplied source URL itself. Only one draft
 is generated per backend process at a time (429 if busy); the Ollama request has
 an explicit timeout. Missing model/server, timeouts, and unusable output return
-helpful errors. Generation does not fetch full articles or verify claims.
+helpful errors. Generation requires readable publisher article text and does not verify claims.
 
 The frontend uses `twitter-text` weighted counting and disables Copy for invalid
 or over-280-character drafts. A model may exceed the requested length; edit the
 result before copying. Model instructions reduce but cannot eliminate invented
-claims. Review the draft and source evidence before manually posting to X.
+claims. Review the draft and source evidence before manually posting.
 Nothing is published automatically, and drafts are not stored persistently.
+
+### LinkedIn drafts and composer
+
+`POST /api/posts/linkedin` accepts the same story fields as the X endpoint. It
+requests 2–3 paragraphs (around 80–140 words when the extracted article text supports
+that length), without inventing context to fill space. Paragraph breaks are
+preserved. Both formats remove trailing ` - Publisher` suffixes from inputs and
+output and omit the separate publisher/source label. Meaningful attribution in
+the prose remains allowed. The frontend stores each format separately, lets the
+user include or omit the source URL when copying, and enforces a 3,000-character
+LinkedIn limit or X weighted 280-character limit. Publisher coverage is no longer
+shown on cards; backend grouping and ranking remain unchanged.
+
+## Full article context before generation
+
+`POST /api/articles/extract` accepts `{ "url": "https://..." }` and returns the
+resolved publisher `url`, readable `text`, `word_count`, and `truncated` flag.
+Opening Create post loads this context; generation is disabled until it succeeds.
+Both post endpoints independently require extraction, so bypassing the frontend
+cannot silently fall back to a headline/RSS-only draft. RSS descriptions remain
+on dashboard cards but are not sent as generation evidence.
+
+Google News RSS links are resolved with a signature and its undocumented
+`batchexecute` RPC before fetching the publisher. That mechanism may change or be
+rate-limited. HTTP redirects are bounded and each destination is checked for
+public addresses. Downloads allow only HTTP(S), standard ports and HTML, cap
+responses at 3 MB, and use a 45-second overall timeout with explicit per-request
+timeouts. Trafilatura removes navigation/comments; at least 60 readable words
+are required. Recognized paywalls and unreadable/blocked pages fail with a useful
+422 response; there is no paywall bypass or RSS fallback. Extraction heuristics
+cannot guarantee that every page's complete article is available.
+
+Extracted text is capped at 24,000 characters (marked as an excerpt when capped)
+and reused for up to 10 minutes in a bounded, 20-entry in-memory cache. Nothing is
+written to article files or a database. The prompt prohibits invented statements
+about verification or missing official confirmation. Full article context improves
+grounding but does not establish truth or eliminate model errors.
+
+Verification: 52 fixture tests passed, including Google URL decoding, content
+extraction, caching, redirects, non-public destinations, short/blocked/paywalled
+pages, and generation refusal without full context. Live Google News resolution
+and publisher extraction returned 333 words; an unavailable story was rejected.
+Frontend lint, TypeScript and production build passed. Browser checks unavailable.
+
+The live full-article-to-Ollama path completed. Its draft contained an altered
+numeric range, so a regression-tested guard now rejects output ranges absent
+from the source text. This is a narrow check, not comprehensive fact verification;
+model drafts still require review.
+
+### Short articles and publisher-link fallback
+
+Readable articles between 60 and 99 words are now accepted. The supplied Gulf
+Daily News article extracted successfully at 97 words; the former 100-word
+minimum rejected it. Errors now distinguish insufficient text, HTTP failures,
+timeouts and resolution failures. The extraction request may include
+`expected_title`; a word-overlap check rejects obvious topic mismatches, including
+on cache hits and before generation. This is only a conservative mismatch check,
+not semantic matching or fact verification.
+
+The writing panel now tries collected publisher alternatives automatically.
+Generation uses the matching publisher URL and attribution from the loaded context.
+
+Verification: 54 backend tests, frontend lint, TypeScript and production build
+passed. Live extraction of the supplied GDN URL returned 97 words and passed the
+headline check. The supplied Google URL resolved to a different story during the
+diagnostic run, so use the direct URL fallback for this story.
+
+## Automatic publisher fallback
+
+Google News is retained for discovery. Resolving a Google RSS link is expected;
+it is not itself an extraction error. The supplied India-edition example resolved
+to Newstimes, whose HTTP response was a JavaScript Client Challenge page, not the
+article. That response is now classified as a challenge rather than merely short
+text. No challenge or paywall bypass was added.
+
+The extraction request accepts up to nine `alternatives` (URL and publisher name).
+The reader tries at most four distinct collected URLs in a shared 60-second
+budget, skipping duplicate Google article IDs across locale query variations and
+rejecting mismatching article text. Google resolution preserves US/India edition
+settings. Successful text is also cached under the resolved publisher URL, so
+post generation can reuse it without repeating Google resolution. The response
+includes the selected `source`, and the composer uses that publisher and URL.
+The manual URL-entry form is removed. If all candidates fail, no draft is created.
+
+Verification: 58 backend tests passed, covering automatic fallback, publisher
+attribution, locale retention, and challenge-page rejection. Frontend lint,
+TypeScript and production build passed. Live testing found that all four sources
+for one current story were unavailable; the reader correctly refused generation.
+This does not guarantee that every story will have an accessible source.

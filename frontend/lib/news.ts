@@ -48,21 +48,46 @@ export async function collectNews(): Promise<NewsResponse> {
   return { ...data, articles: data.articles.map(normalizeArticle) };
 }
 
-export async function generateXPost(article: Article): Promise<{ draft: string; model: string }> {
+export type PostPlatform = "x" | "linkedin";
+
+export async function generatePost(article: Article, platform: PostPlatform): Promise<{ draft: string; body: string; source_url: string; model: string }> {
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
   try {
-    const response = await fetch(`${base}/api/posts/x`, {
+    const response = await fetch(`${base}/api/posts/${platform}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(190000),
+      signal: AbortSignal.timeout(240000),
       body: JSON.stringify({ title: article.title, description: article.description, source: article.source, url: article.url }),
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : "Could not generate a draft. Please try again.");
     if (typeof body?.draft !== "string" || !body.draft.trim()) throw new Error("The service returned an empty draft. Please try again.");
+    if (typeof body.body !== "string" || !body.body.trim() || typeof body.source_url !== "string" || !/^https?:\/\//i.test(body.source_url)) {
+      throw new Error("The backend is using an older draft format. Restart FastAPI and try again.");
+    }
     return body;
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") throw new Error("Draft generation timed out. Try again or use a smaller local model.");
     if (err instanceof TypeError) throw new Error("Could not reach the backend. Check that FastAPI is running.");
+    throw err;
+  }
+}
+
+export type ExtractedArticle = { source: string; url: string; text: string; word_count: number; truncated: boolean };
+
+export async function extractArticle(article: Article): Promise<ExtractedArticle> {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+  try {
+    const response = await fetch(`${base}/api/articles/extract`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(65000), body: JSON.stringify({ url: article.url, expected_title: article.title, source: article.source, alternatives: article.coverage.filter(item => item.url !== article.url).slice(0, 9).map(item => ({ url: item.url, source: item.source })) }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : "Could not read the full article. Try again.");
+    if (typeof body?.text !== "string" || typeof body?.url !== "string" || !/^https?:\/\//i.test(body.url) || !body.text.trim()) throw new Error("Article extraction returned no usable text. Restart the backend and try again.");
+    return body;
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") throw new Error("Reading the article timed out. Try again.");
+    if (err instanceof TypeError) throw new Error("Cannot reach the article service. Check that FastAPI is running.");
     throw err;
   }
 }
