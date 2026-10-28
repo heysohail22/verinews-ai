@@ -142,7 +142,7 @@ async def rank_ai_news(response: NewsResponse, progress=None) -> NewsResponse:
     selected = []
     for i, article in enumerate(articles):
         assessment = assessments[f"a{i}"]
-        if assessment.decision == "keep" and assessment.relevance >= 70:
+        if assessment.decision == "keep":
             selected.append(article.model_copy(update={
                 "ai_relevance": assessment.relevance, "ai_importance": assessment.importance,
                 "ai_reason": assessment.reason,

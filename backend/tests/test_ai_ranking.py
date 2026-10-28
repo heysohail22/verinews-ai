@@ -78,12 +78,13 @@ def test_invalid_assessments_fail_closed(monkeypatch, failure):
         asyncio.run(ai_ranking.rank_ai_news(news(2)))
 
 
-def test_unresolved_uncertain_and_low_relevance_are_not_kept(monkeypatch):
+def test_ai_keep_decision_is_not_overridden_by_score_cutoff(monkeypatch):
     def handler(records):
         return [assessment(record, relevance=20 if record["id"] == "a0" else 90, decision="keep" if record["id"] == "a0" else "uncertain") for record in records]
     mock_model(monkeypatch, handler)
     result = asyncio.run(ai_ranking.rank_ai_news(news(2)))
-    assert result.articles == []
+    assert [article.id for article in result.articles] == ["original-0"]
+    assert result.articles[0].ai_relevance == 20
     assert result.ai_reviewed == 2
 
 

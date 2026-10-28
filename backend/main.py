@@ -88,3 +88,8 @@ async def stream_news():
             with suppress(asyncio.CancelledError):
                 await task
     return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+if __name__ == "__main__":
+    from startup import run_backend
+    run_backend()

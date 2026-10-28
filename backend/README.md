@@ -166,3 +166,18 @@ to the animated frontend status display. AI relevance scores are not fact checks
 Ollama uses a 4096-token context and unloads the model after each request to reduce
 idle memory use. Draft input is limited to 6000 characters and marked as truncated
 when necessary. These limits reduce memory use but do not guarantee against OOM.
+
+Topic selection follows the AI `keep` decision directly; there is no additional
+keyword filter or relevance-score cutoff. Scores determine ordering. The 24-hour
+window, URL validation, duplicate grouping and readable-content checks still apply.
+
+### Start backend and Ollama together
+
+From `backend`, run `uv run main.py`. This loads `backend/.env`, checks the
+configured Ollama server, starts `ollama serve` if the local server is unavailable,
+and verifies the configured models are installed before starting FastAPI at
+`http://127.0.0.1:8000`. Missing models produce an `ollama pull` instruction.
+Models load on the first AI request rather than occupying RAM at startup.
+Ctrl+C stops FastAPI and any Ollama server this launcher started. An existing
+Ollama service is reused and left running. This launcher does not enable reload;
+restart it after code changes.
