@@ -69,7 +69,6 @@ def test_google_resolution_preserves_edition(monkeypatch, region):
     (403, b"blocked", "text/html"),
     (200, b"<article>Only a headline</article>", "text/html"),
     (200, HTML, "application/pdf"),
-    (200, b'<script type="application/ld+json">{"isAccessibleForFree":false}</script>' + HTML, "text/html"),
 ])
 def test_unavailable_content(monkeypatch, status, content, kind):
     client_mock(monkeypatch, lambda request: httpx.Response(status, content=content, headers={"content-type": kind}))
@@ -161,3 +160,24 @@ def test_javascript_challenge_is_not_article_context(monkeypatch):
     with pytest.raises(HTTPException) as error:
         asyncio.run(articles.extract_article("https://publisher.example/story"))
     assert "JavaScript challenge" in error.value.detail
+
+
+def test_public_subscription_text_is_labelled_as_excerpt():
+    metadata = b'<script type="application/ld+json">{"@type":"NewsArticle","url":"https://publisher.example/story","isAccessibleForFree":false}</script>'
+    result = articles.readable_article(metadata + HTML, "https://publisher.example/story")
+    assert result.word_count >= 100
+    assert result.truncated
+    assert "Only publicly returned text" in result.access_note
+
+
+def test_related_subscription_metadata_does_not_flag_free_article():
+    metadata = b'<script type="application/ld+json">{"@graph":[{"@type":"NewsArticle","url":"https://publisher.example/other","isAccessibleForFree":false},{"@type":"NewsArticle","url":"https://publisher.example/story","isAccessibleForFree":true}]}</script>'
+    result = articles.readable_article(metadata + HTML, "https://publisher.example/story")
+    assert not result.access_note
+    assert not result.truncated
+
+
+def test_subscription_without_sufficient_public_text_still_fails():
+    page = b'<html><script type="application/ld+json">{"@type":"NewsArticle","isAccessibleForFree":false}</script><body><p>Subscribe to read this article.</p></body></html>'
+    with pytest.raises(articles.InsufficientArticleText):
+        articles.readable_article(page, "https://publisher.example/story")

@@ -1,6 +1,6 @@
-# VeriNews RSS backend
+# VeriNews backend
 
-Requires Python 3.12+ and uv. No API keys or database are needed.
+Requires Python 3.12+, uv, and local Ollama for post generation. No API keys.
 
 ```bash
 cd backend
@@ -8,178 +8,148 @@ uv sync
 uv run uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-`GET /api/health` checks service health. `GET /api/news` returns up to 10
-story groups from the last 24 hours, publisher sources, UTC completion time,
-and feed warnings. All upstream failures return 502; an empty valid feed is a success.
+## News search without RSS
 
-## Coverage collection and ranking
+`GET /api/news` searches Bing/Yahoo News using DDGS directly (no LangChain).
+The query is `latest ai news`, regions are `in-en` and `us-en`, Safe Search is
+moderate, the search time filter is the past day, and each region requests up to three pages of 20 candidates (up to 120 across both regions). Search runs in worker threads with explicit timeouts and bounded
+concurrency. The backend additionally enforces a UTC 24-hour publication window,
+rejects unsafe links, cleans descriptions, and deduplicates normalized URLs.
 
-`feeds.py` generates five Google News RSS searches per region (10 feeds total): artificial intelligence,
-AI models/LLMs, AI agents, AI regulation, and OpenAI/Anthropic/DeepMind. Each
-query includes `when:1d`; the backend additionally enforces the 24-hour window.
-Feeds cover both US English (`en-US`, `US`, `US:en`) and India English
-(`en-IN`, `IN`, `IN:en`), with no API key and at most three concurrent requests.
-Results are combined before URL deduplication and story grouping, so a publisher
-appearing in both regions still counts once per story.
+Related headlines are grouped using conservative word similarity. Groups are
+ranked by distinct identified publisher count, then freshness. The full retrieved pool
+is considered for article-reading checks; at most 10 readable groups are returned. This measures coverage in collected results, not global trends,
+independent confirmation, or truth. Different wording can prevent grouping and
+similar events can be grouped incorrectly.
 
-1. Parse the actual publisher from each RSS entry's `source` metadata. Normalize
-   its domain (or name when no domain exists) so repeated feeds don't count twice.
-2. Exclude unknown/future publication dates and entries older than 24 hours.
-3. Deduplicate normalized article URLs across all topic feeds.
-4. Group similar titles using normalized word sets and a conservative 0.65 Jaccard
-   overlap threshold. Publisher suffixes and common words are removed; numeric
-   model identifiers and selected outcome words must agree. Compare to the newest
-   representative to avoid transitive grouping chains.
-5. Rank by distinct identified publisher count, then newest publication time,
-   with deterministic URL ties. Return at most 10 groups; fewer are allowed.
+There is **no RSS collection or fallback** and DuckDuckGo is not queried.
+Every collection uses `backend="bing,yahoo"`. Search failure returns HTTP 502. A successful search with no qualifying articles
+returns HTTP 200 and an empty list. Partial regional failures keep successful
+results with warnings. Search availability and results are not guaranteed;
+Browser search pages may show different results or ordering.
 
-Each `articles` item remains a representative article and adds `publisher_count`
-and `coverage` (one latest article link per publisher). `sources` now lists the
-publishers in the returned groups; it no longer lists configured query feeds.
-Warnings retain the query feed ID and include its display name in the message.
+`GET /api/health` returns `{"status":"ok"}` without checking upstream services.
+`GET /api/news` returns `articles`, publisher `sources`, `collected_at`, and
+`warnings`. Each story includes a representative article, `publisher_count`, and
+one `coverage` link per publisher for automatic article-reading fallback.
 
-This measures **most covered stories within the collected feeds**, not global
-trending activity. Missing publisher metadata does not inflate publisher counts.
-Title grouping may miss differently worded reports or merge similar events.
-Distinct publishers may reuse syndicated reporting: counts do not establish
-independent confirmation, credibility, or truth. No AI, Ollama, API keys, stored
-history, or momentum scoring is used. Google RSS links may open Google News
-before the publisher, and the public RSS endpoint has no availability guarantee.
+## Reading articles
 
-Requests use three concurrent slots, an 8-second connect timeout and a 20-second
-network operation timeout. Descriptions are plain RSS text, not full articles or
-AI summaries. No stories are stored. Links retain meaningful query parameters;
-fragments, default ports and hostname case are normalized for deduplication.
+`POST /api/articles/extract` accepts `url`, optional `expected_title`, `source`,
+and up to nine `alternatives` (URL/source objects). It automatically tries at most
+four distinct collected links within 60 seconds. Google-wrapped links from older
+results can still be resolved, but no RSS discovery requests are made.
 
-CORS permits `http://localhost:3000` by default. Set `FRONTEND_ORIGIN` to the exact
-frontend origin if using another host or port (including `127.0.0.1`).
+Trafilatura extracts publisher text. Downloads allow public HTTP(S) addresses,
+standard ports, bounded redirects, HTML content, and a 3 MB response limit.
+At least 60 words are required; JavaScript challenges, unreadable pages, and
+obvious headline mismatches are rejected. Subscription metadata is checked only
+for the current article. If sufficient text is publicly returned, it can be used
+as a labelled potentially incomplete excerpt; subscriber-only content is not
+fetched or unlocked. The
+response contains `url`, `source`, `text`, `word_count`, and `truncated`.
 
-```bash
-uv run pytest
-```
+Text is capped at 24,000 characters and marked as an excerpt when shortened. A
+bounded in-memory cache reuses it for 10 minutes; no article files or database
+are created. Reading does not guarantee a complete article or fact-check it.
+Browser-based loading with Playwright is not yet implemented.
 
-Tests use deterministic RSS fixtures and mocked HTTP; live feeds can change or fail.
-
-Verification (28 October 2026): 22 fixture tests passed, covering ranking,
-publisher counting, overlapping feeds, grouping boundaries, freshness, result
-limits, unsafe links, and failures. Live collection across all five feeds returned
-10 story groups with no source warnings. Frontend lint passed.
-
-TypeScript checking and the production Next.js build also passed.
-
-## Local X post drafts
-
-Install Ollama and download the model once:
+## Local X and LinkedIn drafts
 
 ```bash
 ollama pull qwen3:4b-instruct
 ollama serve  # only if the Ollama service is not already running
 ```
 
-The backend defaults to `OLLAMA_BASE_URL=http://localhost:11434` and
-`OLLAMA_MODEL=qwen3:4b-instruct`. Change these with environment variables or copy
-`.env.example` to `.env` and start with `uv run uvicorn main:app --reload --env-file .env`.
-No Python Ollama SDK or API key is required; httpx calls the local `/api/chat` API.
+Defaults: `OLLAMA_BASE_URL=http://localhost:11434`,
+`OLLAMA_MODEL=qwen3:4b-instruct`, `FRONTEND_ORIGIN=http://localhost:3000`.
+Set environment variables, or copy `.env.example` to `.env` and run:
 
-`POST /api/posts/x` accepts `title`, `description`, `source`, and an HTTP(S) `url`.
-It returns `draft`, the editable `body`, `source_url`, and `model`. The model receives bounded extracted publisher
-article text as untrusted reference data, with thinking disabled and JSON output. The
-backend appends attribution and the supplied source URL itself. Only one draft
-is generated per backend process at a time (429 if busy); the Ollama request has
-an explicit timeout. Missing model/server, timeouts, and unusable output return
-helpful errors. Generation requires readable publisher article text and does not verify claims.
+```bash
+uv run uvicorn main:app --reload --env-file .env
+```
 
-The frontend uses `twitter-text` weighted counting and disables Copy for invalid
-or over-280-character drafts. A model may exceed the requested length; edit the
-result before copying. Model instructions reduce but cannot eliminate invented
-claims. Review the draft and source evidence before manually posting.
-Nothing is published automatically, and drafts are not stored persistently.
+`POST /api/posts/x` and `/api/posts/linkedin` accept `title`, `description`,
+`source`, and `url`. They require readable, matching publisher text before calling
+Ollama. The RSS/search description is not used as article evidence. Thinking is
+disabled and JSON output is requested. No automatic publishing is implemented.
+Responses contain `draft`, editable `body`, `source_url`, and `model`.
 
-### LinkedIn drafts and composer
+X requests a concise body; LinkedIn requests 2–3 paragraphs and around 80–140
+words when supported by the source. Trailing publisher suffixes and separate
+source labels are omitted. The frontend supports editing, optional source-link
+inclusion, X weighted 280-character counting, a LinkedIn 3,000-character limit,
+and Copy. Model output can still contain errors: review drafts before posting.
 
-`POST /api/posts/linkedin` accepts the same story fields as the X endpoint. It
-requests 2–3 paragraphs (around 80–140 words when the extracted article text supports
-that length), without inventing context to fill space. Paragraph breaks are
-preserved. Both formats remove trailing ` - Publisher` suffixes from inputs and
-output and omit the separate publisher/source label. Meaningful attribution in
-the prose remains allowed. The frontend stores each format separately, lets the
-user include or omit the source URL when copying, and enforces a 3,000-character
-LinkedIn limit or X weighted 280-character limit. Publisher coverage is no longer
-shown on cards; backend grouping and ranking remain unchanged.
+One generation runs per backend process at a time (429 when busy). Missing
+Ollama/model, timeout, invalid output and unavailable article errors are handled.
+Extraction and draft generation do not bypass publisher challenges or paywalls.
 
-## Full article context before generation
+## Verification
 
-`POST /api/articles/extract` accepts `{ "url": "https://..." }` and returns the
-resolved publisher `url`, readable `text`, `word_count`, and `truncated` flag.
-Opening Create post loads this context; generation is disabled until it succeeds.
-Both post endpoints independently require extraction, so bypassing the frontend
-cannot silently fall back to a headline/RSS-only draft. RSS descriptions remain
-on dashboard cards but are not sent as generation evidence.
+```bash
+uv run pytest
+```
 
-Google News RSS links are resolved with a signature and its undocumented
-`batchexecute` RPC before fetching the publisher. That mechanism may change or be
-rate-limited. HTTP redirects are bounded and each destination is checked for
-public addresses. Downloads allow only HTTP(S), standard ports and HTML, cap
-responses at 3 MB, and use a 45-second overall timeout with explicit per-request
-timeouts. Trafilatura removes navigation/comments; at least 60 readable words
-are required. Recognized paywalls and unreadable/blocked pages fail with a useful
-422 response; there is no paywall bypass or RSS fallback. Extraction heuristics
-cannot guarantee that every page's complete article is available.
+Fixture tests mock external services and cover search normalization, filters,
+regional failures, no-RSS behavior, grouping, extraction and generation. Live
+DDGS checks returned news initially and later no results, so availability remains
+an upstream dependency. See the harness document for implementation observations.
 
-Extracted text is capped at 24,000 characters (marked as an excerpt when capped)
-and reused for up to 10 minutes in a bounded, 20-entry in-memory cache. Nothing is
-written to article files or a database. The prompt prohibits invented statements
-about verification or missing official confirmation. Full article context improves
-grounding but does not establish truth or eliminate model errors.
+### Bing/Yahoo is the default
 
-Verification: 52 fixture tests passed, including Google URL decoding, content
-extraction, caching, redirects, non-public destinations, short/blocked/paywalled
-pages, and generation refusal without full context. Live Google News resolution
-and publisher extraction returned 333 words; an unavailable story was rejected.
-Frontend lint, TypeScript and production build passed. Browser checks unavailable.
+The user requested always using Bing/Yahoo. DuckDuckGo requests and the
+provider-switch warning have been removed. Partial regional failures can still
+produce genuine availability warnings. Live collection returned 10 story groups
+with no warnings; all 56 backend tests passed. RSS remains disabled.
 
-The live full-article-to-Ollama path completed. Its draft contained an altered
-numeric range, so a regression-tested guard now rejects output ranges absent
-from the source text. This is a narrow check, not comprehensive fact verification;
-model drafts still require review.
+### Public excerpts on subscription-marked pages
 
-### Short articles and publisher-link fallback
+The supplied Verge page marks its NewsArticle as `isAccessibleForFree: false`,
+but publicly returns a readable short update. The old global regex rejected the
+page before reading it. Detection now parses current-article JSON-LD rather than
+matching unrelated embedded records. Sufficient publicly returned text is loaded
+with `truncated=true` and an `access_note` that it may be incomplete. That note
+is displayed in the studio and passed to Ollama. Insufficient public text still
+fails; no hidden subscriber content is accessed.
 
-Readable articles between 60 and 99 words are now accepted. The supplied Gulf
-Daily News article extracted successfully at 97 words; the former 100-word
-minimum rejected it. Errors now distinguish insufficient text, HTTP failures,
-timeouts and resolution failures. The extraction request may include
-`expected_title`; a word-overlap check rejects obvious topic mismatches, including
-on cache hits and before generation. This is only a conservative mismatch check,
-not semantic matching or fact verification.
+Verification: the supplied Verge URL loaded 100 words as a labelled excerpt.
+All 58 backend tests, frontend lint, TypeScript and production build passed.
 
-The writing panel now tries collected publisher alternatives automatically.
-Generation uses the matching publisher URL and attribution from the loaded context.
+## Readable-content collection
 
-Verification: 54 backend tests, frontend lint, TypeScript and production build
-passed. Live extraction of the supplied GDN URL returned 97 words and passed the
-headline check. The supplied Google URL resolved to a different story during the
-diagnostic run, so use the direct URL fallback for this story.
+Collection now reads article text before showing stories. It checks candidates in
+ranking order across the retrieved pool, three at a time, with 15 seconds per story and a 60-second shared
+reading budget after search. Unreadable, blocked, too-short, mismatching or timed-out
+stories are omitted. Lower-ranked groups can backfill the list up to 10; fewer
+are returned when fewer qualify. If no articles qualify, collection succeeds with
+an empty list, while upstream search failures remain errors.
 
-## Automatic publisher fallback
+Returned articles include `content`, `content_word_count`, `content_is_excerpt`,
+and `content_note`. Their descriptions are plain excerpts of the extracted text,
+not AI summaries or search snippets. When alternate publisher coverage is used,
+its URL, publisher and available date are retained. Public excerpts remain labelled
+as potentially incomplete. Selected text is kept warm in the bounded memory cache
+and preloaded in the writing panel, so choosing a format does not re-download it.
+Server-side post generation still checks/reuses its cached publisher context.
 
-Google News is retained for discovery. Resolving a Google RSS link is expected;
-it is not itself an extraction error. The supplied India-edition example resolved
-to Newstimes, whose HTTP response was a JavaScript Client Challenge page, not the
-article. That response is now classified as a challenge rather than merely short
-text. No challenge or paywall bypass was added.
+Verification: 62 tests passed, frontend lint, TypeScript and production build
+passed. A live collection returned 9 stories, all with article text (275–1,386
+words), including a labelled Verge excerpt, and no collection warnings. Browser
+interaction checks remain unavailable. RSS and DuckDuckGo remain disabled.
 
-The extraction request accepts up to nine `alternatives` (URL and publisher name).
-The reader tries at most four distinct collected URLs in a shared 60-second
-budget, skipping duplicate Google article IDs across locale query variations and
-rejecting mismatching article text. Google resolution preserves US/India edition
-settings. Successful text is also cached under the resolved publisher URL, so
-post generation can reuse it without repeating Google resolution. The response
-includes the selected `source`, and the composer uses that publisher and URL.
-The manual URL-entry form is removed. If all candidates fail, no draft is created.
+## Larger pool before the final ten
 
-Verification: 58 backend tests passed, covering automatic fallback, publisher
-attribution, locale retention, and challenge-page rejection. Frontend lint,
-TypeScript and production build passed. Live testing found that all four sources
-for one current story were unavailable; the reader correctly refused generation.
-This does not guarantee that every story will have an accessible source.
+Search now requests three pages per region and stops early when a page adds no
+new URLs or there are no further results. Previously fetched pages survive a
+later-page failure. The complete retrieved candidate pool is used for freshness
+filtering, deduplication and story grouping, without the former 30-group cutoff.
+Readability checking can continue past candidate 30 to fill the top ten, subject
+to the shared time budget. This requests up to 120 results, not every article on
+the internet, and fewer may be available. The final list remains at most ten.
+
+`candidates_found` and `stories_checked` are included in the response and shown
+alongside the kept count. Search has a 30-second regional budget, reading has a
+60-second budget, and the client waits up to 105 seconds. No article database or
+persistent storage was added. All 64 tests, lint, TypeScript and production build
+passed, including pagination and backfill beyond the first 30 candidates.

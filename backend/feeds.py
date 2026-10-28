@@ -1,38 +1,15 @@
 import asyncio
-import calendar
 import hashlib
 import re
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
-import feedparser
-import httpx
 
 from schemas import Article, NewsResponse, Source, Warning
 from stories import rank_stories
-
-TOPICS = (
-    ("ai", "artificial intelligence"),
-    ("models", '"AI model" OR LLM'),
-    ("agents", '"AI agents"'),
-    ("regulation", '"AI regulation"'),
-    ("companies", 'OpenAI OR Anthropic OR DeepMind'),
-)
-REGIONS = (
-    ("US", "en-US", "US:en"),
-    ("IN", "en-IN", "IN:en"),
-)
-FEEDS = tuple(
-    (Source(id=f"google-news-{region.lower()}-{topic}", name=f"Google News · {region} · {query}"),
-     "https://news.google.com/rss/search?" + urlencode({
-         "q": f"({query}) when:1d", "hl": language, "gl": region, "ceid": edition,
-     }))
-    for region, language, edition in REGIONS
-    for topic, query in TOPICS
-)
-
-
+from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 
 class PlainText(HTMLParser):
     def __init__(self):
@@ -80,61 +57,7 @@ def normalize_url(value):
         return None
 
 
-def parse_feed(content, source):
-    parsed = feedparser.parse(content)
-    if not parsed.entries and (parsed.bozo or not parsed.version):
-        raise ValueError("Unreadable feed")
-    articles = []
-    for entry in parsed.entries:
-        title = plain_text(entry.get("title"))
-        url = normalize_url(entry.get("link"))
-        if not title or not url:
-            continue
-        published = None
-        date = entry.get("published_parsed") or entry.get("updated_parsed")
-        if date:
-            try:
-                published = datetime.fromtimestamp(calendar.timegm(date), timezone.utc).isoformat().replace("+00:00", "Z")
-            except (ValueError, OverflowError, OSError):
-                pass
-        publisher = source
-        entry_source = entry.get("source") or {}
-        publisher_name = plain_text(entry_source.get("title"))
-        if source.id.startswith("google-news-") and publisher_name:
-            publisher_url = normalize_url(entry_source.get("href"))
-            identity = urlsplit(publisher_url).hostname.removeprefix("www.") if publisher_url else publisher_name.casefold()
-            publisher = Source(id="publisher-" + hashlib.sha256(identity.encode()).hexdigest()[:16], name=publisher_name)
-            # Google appends the publisher to the headline; omit it for grouping.
-            suffix = f" - {publisher_name}"
-            if title.endswith(suffix):
-                title = title[:-len(suffix)].strip()
-            if not title:
-                continue
-        elif source.id.startswith("google-news-"):
-            # Missing attribution must not count separate topic feeds as publishers.
-            publisher = Source(id="google-news-unattributed", name="Google News (publisher unavailable)")
-        articles.append(Article(id=hashlib.sha256(url.encode()).hexdigest(), title=title, url=url,
-                                source_id=publisher.id, source=publisher.name, published_at=published,
-                                description=plain_text(entry.get("summary") or entry.get("description"))))
-    return articles, bool(parsed.bozo)
-
-
-async def collect_news():
-    semaphore = asyncio.Semaphore(3)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=8), follow_redirects=True,
-                                 headers={"User-Agent": "VeriNews/1.0 RSS Reader"}) as client:
-        async def fetch(source, url):
-            async with semaphore:
-                try:
-                    response = await client.get(url)
-                    response.raise_for_status()
-                    articles, malformed = parse_feed(response.content, source)
-                    return articles, Warning(source_id=source.id, message=f"{source.name}: Feed formatting issues; some entries may be missing.") if malformed else None, True
-                except (httpx.HTTPError, ValueError):
-                    return [], Warning(source_id=source.id, message=f"{source.name}: Source is currently unavailable. Try collecting again later."), False
-        results = await asyncio.gather(*(fetch(*feed) for feed in FEEDS))
-    if not any(result[2] for result in results):
-        raise AllFeedsFailed()
+def make_news_response(results, limit=10, group=True):
     collected_at = datetime.now(timezone.utc)
     cutoff = collected_at - timedelta(hours=24)
     unique = {}
@@ -147,13 +70,93 @@ async def collect_news():
                 previous = unique.get(article.url)
                 if previous is None or article.published_at > previous.published_at:
                     unique[article.url] = article
-    articles = rank_stories(list(unique.values()))
+    articles = rank_stories(list(unique.values()), limit=limit) if group else sorted(unique.values(), key=lambda item: (item.published_at, item.url), reverse=True)
     publishers = {item.source_id: Source(id=item.source_id, name=item.source)
-                  for article in articles for item in article.coverage}
+                  for article in articles for item in (article.coverage or [article])}
     return NewsResponse(articles=articles, sources=sorted(publishers.values(), key=lambda source: source.name.casefold()),
                         collected_at=collected_at.isoformat().replace("+00:00", "Z"),
+                        candidates_found=sum(len(items) for items, _, _ in results),
                         warnings=[warning for _, warning, _ in results if warning])
 
 
-class AllFeedsFailed(Exception):
+SEARCH_REGIONS = (("in-en", "India"), ("us-en", "US"))
+
+
+def parse_search_result(entry):
+    if not isinstance(entry, dict):
+        return None
+    title = plain_text(entry.get("title"))
+    url = normalize_url(entry.get("url"))
+    if not title or not url:
+        return None
+    published = None
+    raw_date = entry.get("date")
+    try:
+        if isinstance(raw_date, (int, float)) and not isinstance(raw_date, bool):
+            date = datetime.fromtimestamp(raw_date, timezone.utc)
+        else:
+            date = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
+        if date.tzinfo is not None:
+            published = date.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    except (ValueError, TypeError, OverflowError, OSError):
+        pass
+    publisher = plain_text(entry.get("source")) or urlsplit(url).hostname.removeprefix("www.")
+    identity = re.sub(r"\s+on\s+msn\.com$", "", publisher.casefold()).strip()
+    return Article(id=hashlib.sha256(url.encode()).hexdigest(), title=title, url=url,
+                   source_id="publisher-" + hashlib.sha256(identity.encode()).hexdigest()[:16],
+                   source=publisher, published_at=published, description=plain_text(entry.get("body")))
+
+
+SEARCH_PAGES = 3
+RESULTS_PER_PAGE = 20
+
+
+async def collect_search_news():
+    semaphore = asyncio.Semaphore(2)
+    async def search(region, name):
+        rows_seen = []
+        urls_seen = set()
+        warning = None
+        succeeded = False
+        async with semaphore:
+            try:
+                async with asyncio.timeout(30):
+                    client = DDGS(timeout=8)
+                    for page in range(1, SEARCH_PAGES + 1):
+                        rows = await asyncio.to_thread(
+                            client.news, "latest ai news", region=region, page=page,
+                            safesearch="moderate", timelimit="d", max_results=RESULTS_PER_PAGE, backend="bing,yahoo",
+                        )
+                        succeeded = True
+                        new_rows = [entry for entry in rows if isinstance(entry, dict) and entry.get("url") not in urls_seen]
+                        if not new_rows:
+                            break
+                        rows_seen.extend(new_rows)
+                        urls_seen.update(entry.get("url") for entry in new_rows)
+            except (DDGSException, TimeoutError, OSError, ValueError) as exc:
+                # DDGS signals the end of available pages with this exception.
+                if not (succeeded and isinstance(exc, DDGSException) and "No results found" in str(exc)):
+                    warning = Warning(source_id=f"ddgs-{region}", message=f"Bing/Yahoo News · {name}: Some search results are unavailable.")
+        articles = [article for row in rows_seen if (article := parse_search_result(row))]
+        return articles, warning, succeeded
+    results = await asyncio.gather(*(search(*region) for region in SEARCH_REGIONS))
+    if not any(result[2] for result in results):
+        raise NewsSearchFailed()
+    # Date filtering, deduplication and grouping see the whole retrieved pool.
+    return make_news_response(results, limit=SEARCH_PAGES * RESULTS_PER_PAGE * len(SEARCH_REGIONS), group=False)
+
+
+async def collect_news(progress=None):
+    from ai_ranking import rank_ai_news
+    from readable_news import retain_readable_stories
+    if progress:
+        await progress({"stage": "search", "message": "Collecting AI news candidates from Bing/Yahoo"})
+    candidates = await collect_search_news()
+    reviewed = await rank_ai_news(candidates, progress=progress)
+    if progress:
+        await progress({"stage": "reading", "message": "Reading AI-selected articles and preparing your top stories"})
+    return await retain_readable_stories(reviewed, progress=progress)
+
+
+class NewsSearchFailed(Exception):
     pass

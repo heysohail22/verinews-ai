@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 import httpx
 import trafilatura
+from lxml import html
 from fastapi import HTTPException
 
 from feeds import normalize_url
@@ -107,18 +108,55 @@ async def resolve_google(client, url):
     raise ValueError("No publisher URL returned")
 
 
+def subscription_metadata(content: bytes, url: str) -> bool:
+    """Inspect the current article's JSON-LD, not unrelated embedded records."""
+    try:
+        document = html.fromstring(content)
+    except (ValueError, TypeError):
+        return False
+    def nodes(value):
+        if isinstance(value, list):
+            for item in value:
+                yield from nodes(item)
+        elif isinstance(value, dict):
+            yield value
+            for field in ("@graph", "mainEntity"):
+                yield from nodes(value.get(field))
+    article_types = {"Article", "NewsArticle", "BlogPosting", "ReportageNewsArticle", "AnalysisNewsArticle"}
+    target = normalize_url(url)
+    for script in document.xpath('//script[translate(@type,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="application/ld+json"]/text()'):
+        try:
+            data = json.loads(script)
+        except (ValueError, TypeError):
+            continue
+        for node in nodes(data):
+            kinds = node.get("@type", [])
+            if isinstance(kinds, str):
+                kinds = [kinds]
+            if not isinstance(kinds, list) or not article_types.intersection(kinds):
+                continue
+            identity = node.get("url") or node.get("mainEntityOfPage") or node.get("@id")
+            if isinstance(identity, dict):
+                identity = identity.get("@id") or identity.get("url")
+            if isinstance(identity, str) and normalize_url(urljoin(url, identity)) != target:
+                continue
+            if node.get("isAccessibleForFree") is False or str(node.get("isAccessibleForFree")).lower() == "false":
+                return True
+    return False
+
+
 def readable_article(content: bytes, url: str) -> ExtractedArticle:
-    if re.search(rb'"isAccessibleForFree"\s*:\s*(?:false|"false")', content, re.IGNORECASE):
-        raise ValueError("Subscription article")
+    subscription = subscription_metadata(content, url)
     text = trafilatura.extract(content, url=url, include_comments=False, include_tables=False, favor_precision=True)
     if re.search(rb"<title[^>]*>\s*(?:Client Challenge|Just a moment)[^<]*</title>", content, re.IGNORECASE) or re.search(r"^(?:access denied|just a moment|verify you are human|enable javascript|javascript is disabled)", (text or "").strip(), re.IGNORECASE):
         raise ValueError("Blocked page")
     if not text or len(text.split()) < MIN_WORDS:
         raise InsufficientArticleText(url, len((text or "").split()))
-    truncated = len(text) > MAX_TEXT
-    if truncated:
+    shortened = len(text) > MAX_TEXT
+    truncated = shortened or subscription
+    if shortened:
         text = text[:MAX_TEXT].rsplit(" ", 1)[0]
-    return ExtractedArticle(url=url, text=text, word_count=len(text.split()), truncated=truncated)
+    return ExtractedArticle(url=url, text=text, word_count=len(text.split()), truncated=truncated, access_note="The publisher marks this as subscription content. Only publicly returned text was loaded; it may be an incomplete excerpt." if subscription else "")
 
 
 async def extract_article(url: str) -> ExtractedArticle:
@@ -146,8 +184,6 @@ async def extract_article(url: str) -> ExtractedArticle:
             detail = f"Full article unavailable: only {exc.word_count} readable words were extracted from {domain}; at least {MIN_WORDS} are needed. Other collected coverage will be tried when available. No post was generated."
         elif isinstance(exc, ValueError) and str(exc) == "Blocked page":
             detail = "The publisher returned a browser/JavaScript challenge instead of article text. Other collected coverage will be tried when available."
-        elif isinstance(exc, ValueError) and str(exc) == "Subscription article":
-            detail = "Full article unavailable: the publisher marks this as subscription content."
         elif isinstance(exc, httpx.HTTPStatusError):
             detail = f"Full article unavailable: the publisher or Google News returned HTTP {exc.response.status_code}. Other collected coverage will be tried when available."
         elif isinstance(exc, (TimeoutError, httpx.TimeoutException)):
@@ -155,13 +191,17 @@ async def extract_article(url: str) -> ExtractedArticle:
         else:
             detail = "Full article unavailable: the link could not be resolved or read. Other collected coverage will be tried when available."
         raise HTTPException(status_code=422, detail=detail) from None
+    remember_article(key, article)
+    return article
+
+
+def remember_article(key: str, article: ExtractedArticle) -> None:
     entry = (time.monotonic() + 600, article)
-    _cache[key] = entry
-    _cache[article.url] = entry
-    _cache.move_to_end(key)
+    for alias in dict.fromkeys([key, article.url]):
+        _cache[alias] = entry
+        _cache.move_to_end(alias)
     while len(_cache) > 20:
         _cache.popitem(last=False)
-    return article
 
 
 def validate_article_match(article: ExtractedArticle, expected_title: str) -> None:

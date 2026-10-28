@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from feeds import AllFeedsFailed, collect_news
+from feeds import NewsSearchFailed, collect_news
 from schemas import NewsResponse, PostRequest, PostResponse
 from posts import generate_post
 from articles import extract_story
@@ -30,8 +30,8 @@ async def health():
 async def news():
     try:
         return await collect_news()
-    except AllFeedsFailed:
-        raise HTTPException(status_code=502, detail="All news sources are currently unavailable. Please try again later.") from None
+    except NewsSearchFailed:
+        raise HTTPException(status_code=502, detail="Bing/Yahoo news search is currently unavailable. Search providers may be refusing automated access. Please try again later. RSS is disabled.") from None
 
 
 @app.post("/api/posts/x", response_model=PostResponse)

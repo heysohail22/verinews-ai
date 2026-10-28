@@ -22,6 +22,13 @@ class Article(BaseModel):
     source: str
     published_at: str | None
     description: str
+    content: str = ""
+    content_word_count: int = 0
+    content_is_excerpt: bool = False
+    content_note: str = ""
+    ai_relevance: int = 0
+    ai_importance: int = 0
+    ai_reason: str = ""
     publisher_count: int = 1
     coverage: list[Coverage] = Field(default_factory=list)
 
@@ -32,6 +39,10 @@ class Warning(BaseModel):
 
 
 class NewsResponse(BaseModel):
+    candidates_found: int = 0
+    stories_checked: int = 0
+    ai_reviewed: int = 0
+    ai_selected: int = 0
     articles: list[Article]
     sources: list[Source]
     collected_at: str
@@ -65,6 +76,7 @@ class ArticleRequest(BaseModel):
 
 
 class ExtractedArticle(BaseModel):
+    access_note: str = ""
     source: str = ""
     url: str
     text: str

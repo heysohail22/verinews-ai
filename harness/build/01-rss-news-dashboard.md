@@ -364,3 +364,106 @@ name into the studio and post generation. All unavailable sources means no draft
 Verification: 58 backend tests passed; frontend lint, TypeScript and production
 build passed. Live attempts across four publishers for a current story remained
 unavailable and correctly blocked generation. Browser interactions unverified.
+
+## DDGS discovery update
+
+The user authorized DDGS without LangChain. Collection now searches DuckDuckGo
+News for `latest ai news` in India and US English, moderate Safe Search, past-day
+filter, up to 20 results per region. Existing date filtering, deduplication,
+grouping, coverage ranking and top-10 selection apply. Google RSS remains an
+explicitly announced fallback when DDGS fails or yields no eligible articles.
+This replaces RSS as the primary discovery method without changing article
+extraction or claiming Playwright was implemented.
+
+A live India query returned current news. Later calls returned no results; the
+integrated collector correctly returned 10 RSS fallback stories with a warning.
+Results need not match DuckDuckGo's browser News tab or its order. Screenshot
+settings used Any time, while the app filters to 24 hours and reranks groups.
+
+DDGS verification: all 65 backend tests pass. Frontend ESLint and TypeScript
+checks pass. Live collection and fallback outcomes are recorded above. No
+browser interaction verification was available in this session.
+
+## DuckDuckGo-only discovery
+
+The user explicitly rejected RSS fallback. Removed RSS feed configuration,
+collection/parsing code and the feedparser dependency. `GET /api/news` now uses
+only DDGS's DuckDuckGo news backend. Failure returns a DuckDuckGo-specific 502;
+valid empty search results remain empty. Partial regional success is preserved.
+No automatic switch to another discovery provider occurs. Existing Google URL
+resolution remains only for older article links, not RSS discovery. Refreshing
+clears any old in-memory RSS results shown by the frontend.
+
+DuckDuckGo-only verification: all 56 backend tests passed, including successful
+empty results, unavailable search returning 502, partial regional success and
+retained top-10 selection. Removed legacy RSS tests with the deleted RSS code.
+
+## Authorized Bing/Yahoo fallback after DuckDuckGo 403
+
+The reported collection failure was reproduced: DuckDuckGo news returned HTTP
+403, which DDGS surfaced as no results. The user explicitly selected Bing/Yahoo
+fallback with a visible notice, keeping RSS disabled. Added that search fallback
+for failed or empty primary discovery. Live collection returned 10 stories with
+the provider-switch warning. The query, regions, date filters and ranking are
+unchanged. No RSS code or dependency was restored.
+
+The separate file:/// browser warning was not reproduced. App source and served
+HTML contained no file URLs. Added client-side HTTP(S) validation for incoming
+results, coverage links and extracted publisher URLs, including older state.
+Verification: 57 backend tests, URL guard checks, frontend lint, TypeScript and
+production build passed. The browser warning's original initiator remains unknown.
+
+## Bing/Yahoo-only search
+
+The user requested always using Bing/Yahoo instead of first trying DuckDuckGo.
+Removed the DuckDuckGo attempt and provider-switch notice. Every regional query
+now uses DDGS with `backend="bing,yahoo"`; RSS remains absent. Genuine regional
+failures retain warnings, and total failure returns a Bing/Yahoo-specific error.
+Live collection returned 10 stories with no warnings. All 56 backend tests passed.
+
+## Publicly available text on subscription-marked pages
+
+The user's Verge URL declares the current NewsArticle subscription-only but also
+returns readable public text. Replaced the blanket metadata regex with scoped
+JSON-LD inspection. Sufficient public text may be used as a clearly labelled,
+potentially incomplete excerpt (`truncated` and `access_note`), with that limitation
+passed to Ollama. This adds no access to hidden subscriber content. Short or
+blocked responses still fail. Related-article subscription flags no longer cause
+false positives on a free current article.
+
+Verification: the supplied Verge page loaded 100 words and passed the headline
+check. All 58 backend tests, lint, TypeScript and production build passed. Browser
+visual checks were unavailable.
+
+## Show only stories with readable content
+
+The user requested content/description beyond the headline and removal of stories
+without usable news text. Collection now considers up to 30 ranked candidate
+groups, checks three at a time (15 seconds per story, 60-second shared reading
+budget), and returns at most 10 readable stories. Unreadable groups are omitted;
+lower-ranked candidates backfill when possible. Selected publisher URLs and dates
+are preserved. Cards use actual extracted-text excerpts, loaded word counts and
+public-excerpt labels. The writing studio is preloaded with that context. Content
+remains in browser/server memory, without persistent article storage.
+
+Verification: 62 backend tests passed, including removal, backfill, excerpt/source
+metadata and timeouts. Frontend lint, TypeScript and production build passed.
+Live collection returned 9 readable stories (275–1,386 words) without warnings.
+No browser interaction checks were available. RSS and DuckDuckGo remain disabled.
+
+## Larger candidate pool before filtering to ten
+
+The user requested fetching news before selecting/storing the final ten. Search
+now requests up to three pages of 20 results in both regions (120 requested),
+stopping when no new URLs appear. It preserves earlier pages if later retrieval
+fails. Removed the 30-group cutoff before article reading. Date filtering,
+deduplication and grouping see the whole retrieved pool; readability checks can
+continue beyond candidate 30 until ten succeed or the time budget expires.
+Added candidate/check counts to the API and dashboard. No persistent storage is
+introduced: the selected ten remain in collection memory.
+
+Verification: 64 backend tests passed, including pagination and backfill beyond
+30 candidates. Frontend lint, TypeScript and production build passed.
+
+Live smoke check: 70 search candidates collected, 15 story groups checked, 10
+readable stories kept, and no warnings.

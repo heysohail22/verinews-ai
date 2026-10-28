@@ -14,7 +14,8 @@ Open http://localhost:3000 and run the FastAPI backend separately (see
 `http://localhost:8000`; set it in `.env.local` to change the backend URL, then
 restart Next.js. This public variable is embedded during production builds.
 
-Click **Collect latest news** to fetch RSS news.
+Click **Collect latest news** to search Bing/Yahoo News via DDGS (India and US).
+Bing/Yahoo is always used directly. DuckDuckGo is not queried. Unavailable search shows an error. There is no RSS collection or fallback.
 The dashboard shows the 10 most-covered AI story groups from the last 24 hours,
 ranked by distinct publisher count then freshness. Ranking describes collected
 coverage, not verification or independent confirmation. Collection replaces the previous results; failed recollections retain
@@ -72,3 +73,20 @@ source URL are shown in the studio and used in the generated draft. No manual
 URL entry is required. If every candidate is blocked, too short or unrelated,
 the panel offers **Retry available sources** and does not generate a headline-only
 post. Some publisher sites return JavaScript challenges and remain unavailable.
+
+If a subscription-marked page returns enough public text, the studio labels it
+as a potentially incomplete excerpt rather than rejecting the page solely on
+metadata. Review the extracted text and access note before drafting. Subscriber-only
+content is not unlocked; insufficient public context still blocks generation.
+
+Collection now checks publisher article text before displaying a story. Unreadable
+stories are left out and lower-ranked candidates can fill the list, up to 10.
+Cards show an article-text excerpt and loaded word count, with incomplete public
+excerpts labelled. Create post reuses the loaded text. Search plus reading may
+take about a minute. An empty collection means no readable recent stories qualified.
+
+A larger pool is fetched before selecting the ten: up to three search pages per
+region (120 candidate results). Collection counts show candidates, attempted
+story checks and readable stories kept. There is no pre-reading 30-story cutoff.
+Reading stops after ten successes or the time budget, so fewer may be returned.
+Results are still in-memory and disappear on refresh.

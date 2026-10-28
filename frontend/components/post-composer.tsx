@@ -10,7 +10,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { extractArticle, generatePost, type Article, type ExtractedArticle, type PostPlatform } from "@/lib/news";
+import { extractArticle, generatePost, isHttpUrl, type Article, type ExtractedArticle, type PostPlatform } from "@/lib/news";
 import { cn } from "@/lib/utils";
 
 type Draft = { body: string; sourceUrl: string; includeLink: boolean };
@@ -21,7 +21,7 @@ export function PostComposer({ article }: { article: Article }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [context, setContext] = useState<ExtractedArticle | null>(null);
+  const [context, setContext] = useState<ExtractedArticle | null>(() => article.content ? { url: article.url, source: article.source, text: article.content, word_count: article.content_word_count ?? article.content.split(/\s+/).length, truncated: article.content_is_excerpt ?? false, access_note: article.content_note ?? "" } : null);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState("");
   const readingRef = useRef(false);
@@ -79,13 +79,13 @@ export function PostComposer({ article }: { article: Article }) {
         <div className="mb-7 rounded-xl border bg-background p-4">
           <p className="mb-2 flex items-center gap-2 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"><span className="size-1 rounded-full bg-primary" />The source story</p>
           <p className="text-sm font-semibold leading-relaxed tracking-tight">{article.title}</p>
-          <a href={context?.url ?? article.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-[10px] text-primary">{context?.source || article.source}<ArrowUpRight className="size-3" /></a>
+          <a href={isHttpUrl(context?.url ?? article.url) ? context?.url ?? article.url : undefined} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-[10px] text-primary">{context?.source || article.source}<ArrowUpRight className="size-3" /></a>
         </div>
 
         <div className="mb-6">
           {reading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Resolving publisher links and trying available coverage…</p>}
           {readError && <Alert variant="destructive"><AlertDescription>{readError}<Button onClick={() => void readArticle()} size="sm" variant="outline" className="mt-3">Retry available sources</Button></AlertDescription></Alert>}
-          {context && <div className="rounded-lg border bg-background/60 p-3"><p className="flex items-center gap-2 text-xs text-primary"><Check className="size-3.5" />Article text loaded · {context.word_count.toLocaleString()} words{context.truncated ? " (excerpt)" : ""}</p><details className="mt-2 text-xs"><summary className="cursor-pointer text-muted-foreground">Review extracted article text</summary><p className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-muted-foreground">{context.text}</p></details></div>}
+          {context && <div className="rounded-lg border bg-background/60 p-3"><p className="flex items-center gap-2 text-xs text-primary"><Check className="size-3.5" />Article text loaded · {context.word_count.toLocaleString()} words{context.truncated ? " (excerpt)" : ""}</p>{context.access_note && <p className="mt-2 text-xs leading-5 text-amber-700">{context.access_note}</p>}<details className="mt-2 text-xs"><summary className="cursor-pointer text-muted-foreground">Review extracted article text</summary><p className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-muted-foreground">{context.text}</p></details></div>}
         </div>
 
         <Tabs value={platform} onValueChange={value => { setPlatform(value as PostPlatform); setError(""); setMessage(""); }}>
