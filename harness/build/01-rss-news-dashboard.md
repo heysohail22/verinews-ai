@@ -213,3 +213,23 @@ produce fewer results. This supersedes the original 100-article limit and inclus
 of undated articles. Google News AI is currently the active feed; the three direct
 publisher feeds were disabled by the user. No relevance/significance scoring or
 cross-publisher event clustering is included in this pass.
+
+## Agreed scope update: most-covered story groups
+
+The user authorized broader RSS discovery and a first ranking pass without AI.
+Five English/US Google News topic searches replace the single query. Entries from
+the last 24 hours are deduplicated by normalized URL and grouped conservatively
+by headline similarity. The API returns the top 10 groups, ranked by distinct
+identified publisher count and then freshness, with per-publisher coverage links.
+The dashboard labels these as most-covered stories within collected feeds.
+Publisher filtering matches any coverage member. `sources` now contains returned
+publishers; warnings name unavailable query feeds directly. This supersedes the
+previous newest-only ordering. It adds no AI, fact-checking, persistence, or
+momentum tracking. Syndicated coverage can inflate publisher counts; differently
+worded headlines can remain separate.
+
+Verification: 22 backend fixture tests and frontend lint passed. Live collection
+returned 10 story groups from five searches with no warnings. Browser interaction
+checks remain unavailable in this session.
+
+TypeScript checking and the production Next.js build also passed.

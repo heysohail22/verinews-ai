@@ -8,26 +8,40 @@ uv sync
 uv run uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-`GET /api/health` checks service health. `GET /api/news` collects fresh RSS entries,
-returning up to 10 deduplicated articles from the last 24 hours, configured sources, UTC completion time,
-and source warnings. All upstream failures return 502; an empty valid feed is a success.
+`GET /api/health` checks service health. `GET /api/news` returns up to 10
+story groups from the last 24 hours, publisher sources, UTC completion time,
+and feed warnings. All upstream failures return 502; an empty valid feed is a success.
 
-Server-controlled feeds in `feeds.py`:
+## Coverage collection and ranking
 
-- Google News AI topic search: https://news.google.com/rss/search?q=artificial+intelligence&hl=en-US&gl=US&ceid=US:en
-- Disabled fallback — TechCrunch AI: https://techcrunch.com/category/artificial-intelligence/feed/
-- Disabled fallback — Ars Technica (general technology): https://feeds.arstechnica.com/arstechnica/index
-- Disabled fallback — MIT News AI: https://news.mit.edu/rss/topic/artificial-intelligence2
+`feeds.py` generates five Google News RSS searches: artificial intelligence,
+AI models/LLMs, AI agents, AI regulation, and OpenAI/Anthropic/DeepMind. Each
+query includes `when:1d`; the backend additionally enforces the 24-hour window.
+Feeds use English/US settings, no API key, and at most three concurrent requests.
 
-Google News broadens discovery across publishers without an API key. It uses
-English/US search settings and Google News article links, which may open a Google
-News page before the publisher. This public RSS endpoint has no availability
-guarantee. After fetching, the backend keeps articles published within the last
-24 hours, removes duplicate normalized URLs, and returns the newest 10. The window
-includes the exact 24-hour boundary and excludes future timestamps and unknown
-dates. Fewer than 10 qualifying entries means fewer results, including an empty
-successful collection. Different URLs covering the same event are not grouped;
-relevance, source quality, and significance scoring are not implemented.
+1. Parse the actual publisher from each RSS entry's `source` metadata. Normalize
+   its domain (or name when no domain exists) so repeated feeds don't count twice.
+2. Exclude unknown/future publication dates and entries older than 24 hours.
+3. Deduplicate normalized article URLs across all topic feeds.
+4. Group similar titles using normalized word sets and a conservative 0.65 Jaccard
+   overlap threshold. Publisher suffixes and common words are removed; numeric
+   model identifiers and selected outcome words must agree. Compare to the newest
+   representative to avoid transitive grouping chains.
+5. Rank by distinct identified publisher count, then newest publication time,
+   with deterministic URL ties. Return at most 10 groups; fewer are allowed.
+
+Each `articles` item remains a representative article and adds `publisher_count`
+and `coverage` (one latest article link per publisher). `sources` now lists the
+publishers in the returned groups; it no longer lists configured query feeds.
+Warnings retain the query feed ID and include its display name in the message.
+
+This measures **most covered stories within the collected feeds**, not global
+trending activity. Missing publisher metadata does not inflate publisher counts.
+Title grouping may miss differently worded reports or merge similar events.
+Distinct publishers may reuse syndicated reporting: counts do not establish
+independent confirmation, credibility, or truth. No AI, Ollama, API keys, stored
+history, or momentum scoring is used. Google RSS links may open Google News
+before the publisher, and the public RSS endpoint has no availability guarantee.
 
 Requests use three concurrent slots, an 8-second connect timeout and a 20-second
 network operation timeout. Descriptions are plain RSS text, not full articles or
@@ -43,8 +57,9 @@ uv run pytest
 
 Tests use deterministic RSS fixtures and mocked HTTP; live feeds can change or fail.
 
-Verification (28 October 2026): 13 fixture tests passed. Live `/api/news` returned
-HTTP 200 with 90 articles, all three sources available, and no warnings.
+Verification (28 October 2026): 22 fixture tests passed, covering ranking,
+publisher counting, overlapping feeds, grouping boundaries, freshness, result
+limits, unsafe links, and failures. Live collection across all five feeds returned
+10 story groups with no source warnings. Frontend lint passed.
 
-Updated filtering verification: fixture tests cover the 10-article limit, newest-first
-ordering, exact 24-hour cutoff, unknown/future dates, duplicate URLs, and no recent results.
+TypeScript checking and the production Next.js build also passed.

@@ -60,7 +60,7 @@ def test_collection_dedup_sort_partial_failure(monkeypatch):
     result = asyncio.run(feeds.collect_news())
     assert len(result.articles) == 1
     assert result.articles[0].title == "New AI"
-    assert len(result.sources) == len(feeds.FEEDS)
+    assert [source.id for source in result.sources] == ["test"]
     assert result.warnings[0].source_id == "mit-ai"
     assert result.collected_at.endswith("Z")
 
@@ -134,3 +134,26 @@ def test_no_recent_articles_is_success(monkeypatch):
     result = asyncio.run(feeds.collect_news())
     assert result.articles == []
     assert result.warnings == []
+
+
+def test_google_publisher_metadata():
+    content = b'''<rss version="2.0"><channel><title>Google</title><item>
+    <title>Acme launches Atlas model - Example News</title>
+    <link>https://news.google.com/rss/articles/test</link>
+    <source url="https://www.example.com">Example News</source>
+    </item></channel></rss>'''
+    article = feeds.parse_feed(content, feeds.FEEDS[0][0])[0][0]
+    assert article.source == "Example News"
+    assert article.source_id.startswith("publisher-")
+    assert article.title == "Acme launches Atlas model"
+    assert article.source_id == feeds.parse_feed(content, feeds.FEEDS[1][0])[0][0].source_id
+
+
+def test_topic_overlap_does_not_inflate_publishers(monkeypatch):
+    content = RSS.replace(b"<title>New AI</title>", b'<source url="https://example.com">Example</source><title>New AI - Example</title>')
+    mock_client(monkeypatch, lambda request: httpx.Response(200, content=content))
+    result = asyncio.run(feeds.collect_news())
+    assert len(result.articles) == 1
+    assert result.articles[0].publisher_count == 1
+    assert len(result.articles[0].coverage) == 1
+    assert result.sources[0].name == "Example"

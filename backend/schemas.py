@@ -1,9 +1,17 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Source(BaseModel):
     id: str
     name: str
+
+
+class Coverage(BaseModel):
+    title: str
+    url: str
+    source_id: str
+    source: str
+    published_at: str | None
 
 
 class Article(BaseModel):
@@ -14,6 +22,8 @@ class Article(BaseModel):
     source: str
     published_at: str | None
     description: str
+    publisher_count: int = 1
+    coverage: list[Coverage] = Field(default_factory=list)
 
 
 class Warning(BaseModel):
