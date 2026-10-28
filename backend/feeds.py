@@ -19,11 +19,16 @@ TOPICS = (
     ("regulation", '"AI regulation"'),
     ("companies", 'OpenAI OR Anthropic OR DeepMind'),
 )
+REGIONS = (
+    ("US", "en-US", "US:en"),
+    ("IN", "en-IN", "IN:en"),
+)
 FEEDS = tuple(
-    (Source(id=f"google-news-{topic}", name=f"Google News · {query}"),
+    (Source(id=f"google-news-{region.lower()}-{topic}", name=f"Google News · {region} · {query}"),
      "https://news.google.com/rss/search?" + urlencode({
-         "q": f"({query}) when:1d", "hl": "en-US", "gl": "US", "ceid": "US:en",
+         "q": f"({query}) when:1d", "hl": language, "gl": region, "ceid": edition,
      }))
+    for region, language, edition in REGIONS
     for topic, query in TOPICS
 )
 

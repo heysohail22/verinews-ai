@@ -14,8 +14,7 @@ Open http://localhost:3000 and run the FastAPI backend separately (see
 `http://localhost:8000`; set it in `.env.local` to change the backend URL, then
 restart Next.js. This public variable is embedded during production builds.
 
-Click **Collect latest news** to fetch RSS news. Search and publisher filters run
-locally; publisher filtering matches any publisher in a story's coverage.
+Click **Collect latest news** to fetch RSS news.
 The dashboard shows the 10 most-covered AI story groups from the last 24 hours,
 ranked by distinct publisher count then freshness. Expand publisher coverage to
 read other reporting. Counts describe collected coverage, not verification or

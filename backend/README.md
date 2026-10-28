@@ -14,10 +14,13 @@ and feed warnings. All upstream failures return 502; an empty valid feed is a su
 
 ## Coverage collection and ranking
 
-`feeds.py` generates five Google News RSS searches: artificial intelligence,
+`feeds.py` generates five Google News RSS searches per region (10 feeds total): artificial intelligence,
 AI models/LLMs, AI agents, AI regulation, and OpenAI/Anthropic/DeepMind. Each
 query includes `when:1d`; the backend additionally enforces the 24-hour window.
-Feeds use English/US settings, no API key, and at most three concurrent requests.
+Feeds cover both US English (`en-US`, `US`, `US:en`) and India English
+(`en-IN`, `IN`, `IN:en`), with no API key and at most three concurrent requests.
+Results are combined before URL deduplication and story grouping, so a publisher
+appearing in both regions still counts once per story.
 
 1. Parse the actual publisher from each RSS entry's `source` metadata. Normalize
    its domain (or name when no domain exists) so repeated feeds don't count twice.

@@ -233,3 +233,16 @@ returned 10 story groups from five searches with no warnings. Browser interactio
 checks remain unavailable in this session.
 
 TypeScript checking and the production Next.js build also passed.
+
+## Region coverage update
+
+The user requested India in addition to US coverage. Each of the five topic
+queries now runs in both US-English and India-English editions (10 feeds).
+Results share the existing 24-hour window, deduplication, grouping, and top-10
+ranking. Publisher counts remain unique across regions.
+
+## Dashboard controls update
+
+At the user's request, removed the search field and publisher dropdown, along
+with local filter state and the no-match state. The story count now reflects all
+returned story groups. Backend collection and ranking are unchanged.
