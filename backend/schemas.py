@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import Literal
 
 
 class Source(BaseModel):
@@ -88,14 +89,14 @@ class EvidenceSource(BaseModel):
     title: str
     url: str
     publisher: str
-    relationship: str
+    relationship: Literal["supports", "contradicts", "inconclusive"]
     passage: str
     explanation: str
 
 
 class EvidenceResponse(BaseModel):
     claim: str
-    status: str
+    status: Literal["supported", "conflicting_evidence", "insufficient_evidence"]
     checked_at: str
     sources: list[EvidenceSource] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
