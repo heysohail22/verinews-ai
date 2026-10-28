@@ -1,6 +1,6 @@
 # Version 1: RSS News Dashboard
 
-Status: Planned; implementation has not started.
+Status: Implemented; backend tests and live API verified. Browser verification remains unavailable in this session.
 Created: 28 October 2026.
 
 ## Purpose
@@ -173,24 +173,32 @@ harness/build/
 ## Acceptance criteria
 
 - [ ] Both apps run locally with documented commands and no paid keys.
-- [ ] The health endpoint returns the specified response.
+- [x] The health endpoint returns the specified response.
 - [ ] Clicking Collect latest news requests real RSS data from the backend and displays it.
 - [ ] Every displayed article has a title, publisher, valid original link, and description or clear fallback.
-- [ ] Missing dates are represented honestly and dated articles appear newest first.
-- [ ] Duplicate article URLs are shown once per collection.
+- [x] Missing dates are represented honestly and dated articles appear newest first.
+- [x] Duplicate article URLs are shown once per collection.
 - [ ] Search and source filtering update the displayed results and count without another backend request.
 - [ ] Loading, initial, empty, no-match, partial-failure, and complete-failure states behave as specified.
 - [ ] Previous results survive a failed recollection without receiving a misleading fresh timestamp.
-- [ ] RSS markup is not injected into the page and unsafe article URL schemes are rejected.
+- [x] RSS markup is not injected into the page and unsafe article URL schemes are rejected.
 - [ ] The dashboard is usable by keyboard and on mobile and desktop widths.
-- [ ] Refreshing clears results; neither app stores articles persistently.
-- [ ] The UI does not imply that collected stories have been fact-checked.
+- [x] Refreshing clears results; neither app stores articles persistently.
+- [x] The UI does not imply that collected stories have been fact-checked.
 
 ## Planned verification
 
 Run focused backend tests against fixture data so checks do not depend on changing live feeds. Perform a live collection smoke check, frontend lint, and production build with the repository's configured package manager. Verify the complete button-to-results flow in a browser, including simulated upstream and backend failures where practical.
 
-Record commands actually run and their outcomes during implementation. No implementation checks have been run for this documentation-only task.
+Verification on 28 October 2026:
+
+- `UV_CACHE_DIR=/tmp/verinews-uv uv run --directory backend pytest`: 13 passed. Covers normalization, unsafe URLs, missing dates/descriptions, deduplication, sorting, result limits, empty feeds, malformed feeds, partial failures, health, and all-source 502 responses.
+- Live FastAPI ASGI smoke check: health returned `{"status":"ok"}`; `/api/news` returned HTTP 200 with 90 articles and no source warnings. All three configured feeds worked. Local CORS returned `http://localhost:3000`.
+- `pnpm --pm-on-fail=ignore --dir frontend lint`: passed. The installed pnpm is 11.1.3 while the repository requests 12.15.0; the override was used only for verification, leaving the package-manager declaration unchanged.
+- Initial build attempts hit sandbox process/port restrictions. Final verification outside the sandbox with `node node_modules/typescript/bin/tsc --noEmit && node node_modules/next/dist/bin/next build` (from `frontend/`) passed TypeScript checking and the production Turbopack build.
+- Browser verification could not run: the browser tool reported no available browsers. Mobile/desktop visual checks and simulated frontend interactions remain unverified.
+
+Implementation includes all specified UI states, in-memory filtering, recollection replacement, and preservation of previous data/timestamps on failure. These frontend behaviors have been reviewed in code but require browser interaction checks.
 
 ## Later phases
 

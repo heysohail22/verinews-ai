@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { collectNews, type NewsResponse } from "@/lib/news";
 
 function formatDate(value: string) {
@@ -43,7 +44,7 @@ export default function Home() {
   return (
     <main className="dashboard">
       <header className="masthead">
-        <a className="brand" href="/" aria-label="VeriNews home"><span className="brand-mark" aria-hidden="true">V</span>VeriNews<span className="edition">RSS EDITION</span></a>
+        <Link className="brand" href="/" aria-label="VeriNews home"><span className="brand-mark" aria-hidden="true">V</span>VeriNews<span className="edition">RSS EDITION</span></Link>
         <span className="header-note">A little signal. Less noise.</span>
       </header>
       <section className="intro" aria-labelledby="page-title">
