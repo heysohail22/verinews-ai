@@ -90,3 +90,12 @@ region (120 candidate results). Collection counts show candidates, attempted
 story checks and readable stories kept. There is no pre-reading 30-story cutoff.
 Reading stops after ten successes or the time budget, so fewer may be returned.
 Results are still in-memory and disappear on refresh.
+
+## Newsroom and writing studio
+
+The newsroom has a full-width layout without a sidebar. Each article card shows
+the publisher URL and links to `/create/[id]` using Next.js navigation. Selected
+article text and the collected news are stored in sessionStorage for this tab,
+with an in-memory fallback if browser storage is unavailable. The writing route
+provides X/LinkedIn drafts, character counts, editing, source-link controls and
+copying. Direct visits without a selected article show a link back to the newsroom.

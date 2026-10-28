@@ -13,7 +13,8 @@ from schemas import NewsResponse, Source
 from stories import rank_stories
 
 BATCH_SIZE = 5
-_ranking_lock = asyncio.Lock()
+from ai_runtime import inference_lock
+_ranking_lock = inference_lock
 
 SYSTEM_PROMPT = """You select news for an AI-focused news dashboard.
 GOAL: Find important concrete developments in artificial intelligence: models,

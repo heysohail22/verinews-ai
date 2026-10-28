@@ -130,3 +130,20 @@ export async function extractArticle(article: Article): Promise<ExtractedArticle
     throw err;
   }
 }
+
+export type EvidenceResult = {
+  claim: string; status: "supported" | "conflicting_evidence" | "insufficient_evidence";
+  checked_at: string; notes: string[];
+  sources: { title: string; url: string; publisher: string; relationship: "supports" | "contradicts" | "inconclusive"; passage: string; explanation: string }[];
+};
+export async function checkEvidence(article: Article): Promise<EvidenceResult> {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+  const response = await fetch(`${base}/api/evidence`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(260000),
+    body: JSON.stringify({ title: article.title, source: article.source, url: article.url }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.detail || "Evidence check failed. Please try again.");
+  if (!["supported", "conflicting_evidence", "insufficient_evidence"].includes(body?.status) || !Array.isArray(body?.sources) || !Array.isArray(body?.notes)) throw new Error("The evidence service returned invalid results.");
+  return { ...body, sources: body.sources.filter((source: { url: unknown }) => isHttpUrl(source.url)) };
+}

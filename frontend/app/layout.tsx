@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "VeriNews | AI & Technology News",
-  description: "Collect the latest AI and technology reporting from RSS feeds and read the original stories.",
+  description: "Discover recent AI reporting and create source-grounded drafts for X and LinkedIn.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

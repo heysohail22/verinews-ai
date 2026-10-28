@@ -82,3 +82,20 @@ class ExtractedArticle(BaseModel):
     text: str
     word_count: int
     truncated: bool
+
+
+class EvidenceSource(BaseModel):
+    title: str
+    url: str
+    publisher: str
+    relationship: str
+    passage: str
+    explanation: str
+
+
+class EvidenceResponse(BaseModel):
+    claim: str
+    status: str
+    checked_at: str
+    sources: list[EvidenceSource] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)

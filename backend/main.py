@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from feeds import NewsSearchFailed, collect_news
-from schemas import NewsResponse, PostRequest, PostResponse
+from schemas import NewsResponse, PostRequest, PostResponse, EvidenceResponse
 from posts import generate_post
 from ai_ranking import AIRankingError
 from articles import extract_story
@@ -88,6 +88,12 @@ async def stream_news():
             with suppress(asyncio.CancelledError):
                 await task
     return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/evidence", response_model=EvidenceResponse)
+async def evidence_check(story: PostRequest):
+    from evidence import check_evidence
+    return await check_evidence(story)
 
 
 if __name__ == "__main__":

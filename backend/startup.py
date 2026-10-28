@@ -48,7 +48,7 @@ def ensure_ollama():
                         time.sleep(0.25)
             installed = {model["name"] for model in response.json()["models"]}
             default = os.getenv("OLLAMA_MODEL", "qwen3:0.6b")
-            required = {default, os.getenv("OLLAMA_RANKING_MODEL", default)}
+            required = {default, os.getenv("OLLAMA_RANKING_MODEL", default), os.getenv("OLLAMA_EVIDENCE_MODEL", default)}
             missing = [model for model in sorted(required) if model not in installed and f"{model}:latest" not in installed]
             if missing:
                 commands = "; ".join(f"ollama pull {model}" for model in missing)
