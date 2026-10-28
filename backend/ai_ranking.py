@@ -1,16 +1,18 @@
 """Headline relevance review using local Ollama; not fact verification."""
 import asyncio
 import json
+import logging
 import os
 from typing import Literal
+from datetime import datetime, timezone
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from schemas import NewsResponse, Source
 from stories import rank_stories
 
-BATCH_SIZE = 20
+BATCH_SIZE = 5
 _ranking_lock = asyncio.Lock()
 
 SYSTEM_PROMPT = """You select news for an AI-focused news dashboard.
@@ -52,16 +54,36 @@ class AIRankingError(Exception):
     pass
 
 
+class InvalidAssessment(AIRankingError):
+    pass
+
+
 async def review_batch(client, records):
-    model = os.getenv("OLLAMA_RANKING_MODEL", os.getenv("OLLAMA_MODEL", "qwen3:4b-instruct"))
+    """Retry invalid batches as smaller requests, with one retry per singleton."""
+    try:
+        return await _review_once(client, records)
+    except InvalidAssessment:
+        if len(records) > 1:
+            midpoint = len(records) // 2
+            left = await review_batch(client, records[:midpoint])
+            right = await review_batch(client, records[midpoint:])
+            return {**left, **right}
+        return await _review_once(client, records)
+
+
+async def _review_once(client, records):
+    model = os.getenv("OLLAMA_RANKING_MODEL", os.getenv("OLLAMA_MODEL", "qwen3:0.6b"))
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    schema = Assessments.model_json_schema()
+    schema["properties"]["articles"].update(minItems=len(records), maxItems=len(records))
+    schema["$defs"]["Assessment"]["properties"]["id"]["enum"] = [record["id"] for record in records]
     try:
         response = await client.post(f"{base}/api/chat", json={
-            "model": model, "stream": False, "think": False,
-            "format": Assessments.model_json_schema(),
+            "model": model, "stream": False, "think": False, "keep_alive": 0,
+            "format": schema,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT},
                          {"role": "user", "content": json.dumps(records, ensure_ascii=False)}],
-            "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 2400},
+            "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 900},
         })
         if response.status_code == 404:
             raise AIRankingError(f"The AI review model is not installed. Run: ollama pull {model}")
@@ -79,8 +101,12 @@ async def review_batch(client, records):
         raise AIRankingError("Cannot reach Ollama for AI news review. Start ollama serve and try again.") from None
     except httpx.TimeoutException:
         raise AIRankingError("AI news review timed out. Try a smaller local model or try again.") from None
-    except (httpx.HTTPError, ValueError, KeyError, TypeError, ValidationError):
-        raise AIRankingError("AI news review returned an incomplete or invalid assessment. No unchecked stories were displayed. Try again.") from None
+    except httpx.HTTPError as exc:
+        logging.getLogger(__name__).warning("Ollama review HTTP failure: %s", exc)
+        raise AIRankingError("Ollama could not complete the AI review. Check its server logs and try again.") from None
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        logging.getLogger(__name__).warning("Invalid AI assessment for %s headlines: %s", len(records), type(exc).__name__)
+        raise InvalidAssessment("AI could not assess a headline reliably, even after retrying smaller requests. No unchecked stories were displayed. Try again.") from None
 
 
 async def rank_ai_news(response: NewsResponse, progress=None) -> NewsResponse:
@@ -133,4 +159,5 @@ async def rank_ai_news(response: NewsResponse, progress=None) -> NewsResponse:
     sources = {item.source_id: Source(id=item.source_id, name=item.source)
                for group in grouped for item in group.coverage}
     return response.model_copy(update={"articles": grouped, "sources": list(sources.values()),
-                                       "ai_reviewed": len(records), "ai_selected": len(selected)})
+                                       "ai_reviewed": len(records), "ai_selected": len(selected),
+                                       "collected_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")})

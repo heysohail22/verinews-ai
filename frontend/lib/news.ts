@@ -9,7 +9,7 @@ export type Article = {
   content?: string; content_word_count?: number; content_is_excerpt?: boolean; content_note?: string;
 };
 export type NewsResponse = {
-  candidates_found?: number; stories_checked?: number;
+  candidates_found?: number; stories_checked?: number; ai_reviewed?: number; ai_selected?: number;
   articles: Article[];
   sources: { id: string; name: string }[];
   collected_at: string;
@@ -47,15 +47,44 @@ export function normalizeArticle(article: IncomingArticle): Article {
   };
 }
 
-export async function collectNews(): Promise<NewsResponse> {
+export type CollectionProgress = { stage: "search" | "ranking" | "reading"; message: string; completed?: number; total?: number };
+
+export async function collectNews(onProgress?: (progress: CollectionProgress) => void): Promise<NewsResponse> {
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
-  const response = await fetch(`${base}/api/news`, { cache: "no-store", signal: AbortSignal.timeout(105000) });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new Error(typeof body?.detail === "string" ? body.detail : "News collection failed. Please try again.");
+  const response = await fetch(`${base}/api/news/stream`, { cache: "no-store", signal: AbortSignal.timeout(900000) });
+  if (!response.ok || !response.body) {
+    throw new Error(response.status === 404 ? "Restart FastAPI to enable the AI review progress endpoint." : "Could not start news collection. Please try again.");
   }
-  const data: Omit<NewsResponse, "articles"> & { articles: IncomingArticle[] } = await response.json();
-  return { ...data, articles: data.articles.filter(article => isHttpUrl(article.url)).map(normalizeArticle) };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: NewsResponse | null = null;
+  function event(line: string) {
+    if (!line.trim()) return;
+    const item = JSON.parse(line);
+    if (item.type === "error") throw new Error(item.message || "Collection failed.");
+    if (item.type === "progress") onProgress?.(item as CollectionProgress);
+    if (item.type === "result") {
+      const data = item.data as NewsResponse;
+      if (!Array.isArray(data?.articles)) throw new Error("The news service returned invalid results.");
+      result = { ...data, articles: data.articles.filter(article => isHttpUrl(article.url)).map(normalizeArticle) };
+    }
+  }
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) event(line);
+      if (chunk.done) { event(buffer); break; }
+    }
+    if (!result) throw new Error("Collection ended before results were ready. Please try again.");
+    return result;
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 export type PostPlatform = "x" | "linkedin";

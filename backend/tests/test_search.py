@@ -6,6 +6,7 @@ from ddgs.exceptions import DDGSException
 
 import feeds
 import readable_news
+import ai_ranking
 from schemas import ExtractedArticle
 from schemas import NewsResponse
 
@@ -15,6 +16,9 @@ def readable_context(monkeypatch):
     async def extracted(request):
         return ExtractedArticle(url=request.url, source=request.source, text="Acme Atlas article context. " * 40, word_count=160, truncated=False)
     monkeypatch.setattr(readable_news, "extract_story", extracted)
+    async def reviewed(response, progress=None):
+        return response
+    monkeypatch.setattr(ai_ranking, "rank_ai_news", reviewed)
 
 
 def row(**changes):

@@ -57,12 +57,12 @@ Browser-based loading with Playwright is not yet implemented.
 ## Local X and LinkedIn drafts
 
 ```bash
-ollama pull qwen3:4b-instruct
+ollama pull qwen3:0.6b
 ollama serve  # only if the Ollama service is not already running
 ```
 
 Defaults: `OLLAMA_BASE_URL=http://localhost:11434`,
-`OLLAMA_MODEL=qwen3:4b-instruct`, `FRONTEND_ORIGIN=http://localhost:3000`.
+`OLLAMA_MODEL=qwen3:0.6b`, `FRONTEND_ORIGIN=http://localhost:3000`.
 Set environment variables, or copy `.env.example` to `.env` and run:
 
 ```bash
@@ -153,3 +153,16 @@ alongside the kept count. Search has a 30-second regional budget, reading has a
 60-second budget, and the client waits up to 105 seconds. No article database or
 persistent storage was added. All 64 tests, lint, TypeScript and production build
 passed, including pagination and backfill beyond the first 30 candidates.
+
+### Local AI headline review
+
+The default model is `qwen3:0.6b` for headline review and post drafts.
+`OLLAMA_RANKING_MODEL` can override the headline model separately. Every unique
+recent candidate is reviewed in sequential batches of five before grouping and
+selecting up to ten readable stories. Ambiguous headlines may be reviewed again
+with their search descriptions. Structured output must account for every input ID.
+The streaming news endpoint reports collection, review counts and article reading
+to the animated frontend status display. AI relevance scores are not fact checks.
+Ollama uses a 4096-token context and unloads the model after each request to reduce
+idle memory use. Draft input is limited to 6000 characters and marked as truncated
+when necessary. These limits reduce memory use but do not guarantee against OOM.

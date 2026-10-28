@@ -30,7 +30,7 @@ async def generate_post(story: PostRequest, platform: str = "x") -> PostResponse
         raise HTTPException(status_code=422, detail="A title, publisher and valid HTTP(S) source link are required.")
     if _generation_lock.locked():
         raise HTTPException(status_code=429, detail="A draft is already being generated. Please wait and try again.")
-    model = os.getenv("OLLAMA_MODEL", "qwen3:4b-instruct")
+    model = os.getenv("OLLAMA_MODEL", "qwen3:0.6b")
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     platform_prompt = SYSTEM_PROMPT
     if platform == "linkedin":
@@ -42,7 +42,7 @@ async def generate_post(story: PostRequest, platform: str = "x") -> PostResponse
         )
     title = clean_publisher_suffix(plain_text(story.title), plain_text(story.source))
     payload = {
-        "model": model, "stream": False, "think": False,
+        "model": model, "stream": False, "think": False, "keep_alive": 0,
         "format": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"], "additionalProperties": False},
         "messages": [
             {"role": "system", "content": platform_prompt},
@@ -59,10 +59,10 @@ async def generate_post(story: PostRequest, platform: str = "x") -> PostResponse
         url = article.url
         payload["messages"][1]["content"] = json.dumps({
             "title": title, "publisher": plain_text(story.source),
-            "article_text": article.text, "text_is_truncated": article.truncated,
+            "article_text": article.text[:6000], "text_is_truncated": article.truncated or len(article.text) > 6000,
             "source_access_note": article.access_note,
         }, ensure_ascii=False)
-        payload["options"]["num_ctx"] = 12288
+        payload["options"]["num_ctx"] = 4096
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5)) as client:
                 response = await client.post(f"{base}/api/chat", json=payload)
